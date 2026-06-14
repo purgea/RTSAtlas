@@ -49,10 +49,11 @@ export class Camera {
   // -------------------------------------------------------
   zoomAt(delta, sx, sy) {
     const newZoom = Math.max(this._minZoom, Math.min(this._maxZoom, this.zoom * (1 + delta)));
-    const ratio   = newZoom / this.zoom;
-    this.x = sx - ratio * (sx - this.x);
-    this.y = sy - ratio * (sy - this.y);
+    const worldX = (sx + this.x) / this.zoom;
+    const worldY = (sy + this.y) / this.zoom;
     this.zoom = newZoom;
+    this.x = worldX * this.zoom - sx;
+    this.y = worldY * this.zoom - sy;
   }
 
   // -------------------------------------------------------

@@ -240,8 +240,6 @@ export class GameEngine {
         aiProfile: fdef.ai_profile || { aggression: 0.5, expansion: 0.5, economy: 0.5 },
       };
 
-      const sp = spawns[i] || { x: 10 + i * 40, y: 10 };
-
       // Build FACTION component on a dedicated entity so ECS queries work
       const fEntity = this.ecs.createEntity(`faction:${fdef.name}`);
       this.ecs.addComponent(fEntity, COMP.FACTION, {
@@ -257,6 +255,8 @@ export class GameEngine {
         const k = (b.key || '').toLowerCase();
         return k.includes('castle') || k.includes('con_yard') || k.includes('hq') || k.includes('headquarters');
       }) || (this.config.buildingConfigs || [])[0];
+      const rawSpawn = spawns[i] || { x: 10 + i * 40, y: 10 };
+      const sp = this._findNearestClearArea(rawSpawn.x, rawSpawn.y, conYardDef?.size || 3, 16) || rawSpawn;
 
       if (conYardDef) {
         this._spawnBuilding(conYardDef.key, fId, sp.x, sp.y, conYardDef);
@@ -266,14 +266,16 @@ export class GameEngine {
       const powerDef = (this.config.buildingConfigs || []).find(b => (b.key || '').toLowerCase().includes('power'));
       if (powerDef) {
         const sz = powerDef.size || 2;
-        this._spawnBuilding(powerDef.key, fId, sp.x + (conYardDef?.size || 3) + 1, sp.y, powerDef);
+        const pos = this._findNearestClearArea(sp.x + (conYardDef?.size || 3) + 1, sp.y, sz, 8);
+        if (pos) this._spawnBuilding(powerDef.key, fId, pos.x, pos.y, powerDef);
       }
 
       // Spawn refinery if available
       const refineryDef = (this.config.buildingConfigs || []).find(b => (b.key || '').toLowerCase().includes('refinery'));
       if (refineryDef) {
         const sz = refineryDef.size || 2;
-        this._spawnBuilding(refineryDef.key, fId, sp.x, sp.y + (conYardDef?.size || 3) + 1, refineryDef);
+        const pos = this._findNearestClearArea(sp.x, sp.y + (conYardDef?.size || 3) + 1, sz, 8);
+        if (pos) this._spawnBuilding(refineryDef.key, fId, pos.x, pos.y, refineryDef);
       }
 
       // Spawn starting military units
@@ -328,6 +330,9 @@ export class GameEngine {
   _spawnUnit(key, fId, tx, ty, def) {
     def = def || (this.config.unitConfigs || []).find(u => u.key === key) || {};
     const id = this.ecs.createEntity(`unit:${key}`);
+    const spawnTile = this._findNearestPassableTile(tx, ty, 8) || { x: tx, y: ty };
+    tx = spawnTile.x;
+    ty = spawnTile.y;
     const wx = (tx + 0.5) * TILE_SIZE;
     const wy = (ty + 0.5) * TILE_SIZE;
     const role = categoryToRole(def.category || '');
@@ -382,6 +387,48 @@ export class GameEngine {
     this.ecs.addComponent(id, COMP.ORDER, { type: null });
     this.spatial.insert(id, wx, wy);
     return id;
+  }
+
+  _findNearestPassableTile(cx, cy, radius) {
+    for (let r = 0; r <= radius; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (this.map.isPassable(x, y)) return { x, y };
+        }
+      }
+    }
+    return null;
+  }
+
+  _findNearestClearArea(cx, cy, size, radius) {
+    for (let r = 0; r <= radius; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (this._isClearArea(x, y, size)) return { x, y };
+        }
+      }
+    }
+    return null;
+  }
+
+  _isClearArea(tx, ty, size) {
+    if (tx < 1 || ty < 1 || tx + size >= this.map.width - 1 || ty + size >= this.map.height - 1) {
+      return false;
+    }
+
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (!this.map.isPassable(tx + dx, ty + dy)) return false;
+      }
+    }
+
+    return true;
   }
 
   _spawnBuilding(key, fId, tx, ty, def) {

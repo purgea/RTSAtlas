@@ -130,6 +130,8 @@ export class AISystem {
 
     const tx = Math.floor(targetPos.x / TILE_SIZE);
     const ty = Math.floor(targetPos.y / TILE_SIZE);
+    const attackTarget = this._findNearestPassableTile(tx, ty, 8);
+    if (!attackTarget) return;
 
     // Gather idle military units
     const units = ecs.query(COMP.UNIT, COMP.FACTION, COMP.MOVEMENT, COMP.COMBAT)
@@ -142,12 +144,11 @@ export class AISystem {
       });
 
     for (const id of units) {
-      const mov = ecs.getComponent(id, COMP.MOVEMENT);
       // Spread units slightly around target so they don't stack
       const ox = this._rng.nextInt(-4, 4);
       const oy = this._rng.nextInt(-4, 4);
-      mov.pendingTarget = { x: tx + ox, y: ty + oy };
-      mov.state = 'moving';
+      const target = this._findNearestPassableTile(attackTarget.x + ox, attackTarget.y + oy, 4) || attackTarget;
+      this.pathfinding?.requestDeferred(id, target.x, target.y);
     }
   }
 
@@ -235,6 +236,21 @@ export class AISystem {
     for (const id of ecs.query(COMP.UNIT, COMP.FACTION)) {
       const f = ecs.getComponent(id, COMP.FACTION);
       if (f.isPlayer) return ecs.getComponent(id, COMP.POSITION);
+    }
+    return null;
+  }
+
+  _findNearestPassableTile(cx, cy, radius) {
+    const { map } = this;
+    for (let r = 0; r <= radius; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (map.isPassable(x, y)) return { x, y };
+        }
+      }
     }
     return null;
   }

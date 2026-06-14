@@ -30,8 +30,6 @@ export class PathfindingSystem {
         mov.urgentPath = false;
       } else {
         this._queue.push(id);
-        mov.pendingTarget = mov._deferredTarget;
-        mov._deferredTarget = null;
       }
     }
 
