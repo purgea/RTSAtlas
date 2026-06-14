@@ -10,7 +10,7 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div v-for="f in factions" :key="f.id" class="bg-gray-900 border border-gray-800 rounded-lg p-4 flex items-start gap-4">
-        <div class="w-10 h-10 rounded-full flex-shrink-0 border-2 border-gray-700" :style="{ background: f.color }"></div>
+        <div class="w-10 h-10 rounded flex-shrink-0 border-2 border-gray-700 grid place-items-center text-sm font-bold text-white" :style="{ background: f.color }">{{ emblemGlyph(f.emblem) }}</div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 mb-1">
             <h3 class="font-semibold text-white truncate">{{ f.name }}</h3>
@@ -43,6 +43,10 @@
               <label class="label">Color</label>
               <input v-model="form.color" type="color" class="w-full h-10 rounded border border-gray-600 bg-gray-800 cursor-pointer" />
             </div>
+          </div>
+          <div class="mb-4">
+            <label class="label">Emblem / Sprite Key</label>
+            <input v-model="form.emblem" type="text" placeholder="eagle, skull, sun, shield" class="input" />
           </div>
           <div class="mb-4">
             <label class="label">Description</label>
@@ -83,16 +87,27 @@ const emit  = defineEmits(['updated']);
 const showForm = ref(false);
 const editing  = ref(null);
 const saving   = ref(false);
-const form     = reactive({ name: '', color: '#4169e1', description: '', playable: true, ai_profile: { aggression: 0.5, expansion: 0.5, economy: 0.5 }, bonuses: {} });
+const blank = () => ({ name: '', color: '#4169e1', emblem: 'shield', description: '', playable: true, ai_profile: { aggression: 0.5, expansion: 0.5, economy: 0.5 }, bonuses: {} });
+const form     = reactive(blank());
 
 function pct(v) { return Math.round((v ?? 0) * 100) + '%'; }
+function emblemGlyph(emblem) {
+  const key = String(emblem || '').toLowerCase();
+  if (key.includes('eagle')) return 'E';
+  if (key.includes('skull')) return '☠';
+  if (key.includes('sun')) return '☀';
+  if (key.includes('star')) return '★';
+  if (key.includes('gear')) return '⚙';
+  if (key.includes('blade') || key.includes('sword')) return '†';
+  return '◆';
+}
 
 function openForm(f) {
   editing.value = f;
   if (f) {
-    Object.assign(form, { ...f, ai_profile: { ...{ aggression: 0.5, expansion: 0.5, economy: 0.5 }, ...(f.ai_profile || {}) } });
+    Object.assign(form, { ...blank(), ...f, ai_profile: { ...blank().ai_profile, ...(f.ai_profile || {}) } });
   } else {
-    Object.assign(form, { name: '', color: '#4169e1', description: '', playable: true, ai_profile: { aggression: 0.5, expansion: 0.5, economy: 0.5 }, bonuses: {} });
+    Object.assign(form, blank());
   }
   showForm.value = true;
 }

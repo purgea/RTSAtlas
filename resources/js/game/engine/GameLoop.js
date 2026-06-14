@@ -49,7 +49,6 @@ export class GameLoop {
 
   pause()   { this.speed = 0; }
   resume()  { this.speed = 1.0; }
-  setSpeed(s) { this.speed = Math.max(0, Math.min(8, s)); }
 
   _loop(timestamp) {
     if (!this._running) return;

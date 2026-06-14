@@ -9,7 +9,7 @@ class EventConfig extends Model
 {
     protected $fillable = [
         'project_id', 'key', 'name', 'type', 'description',
-        'base_probability', 'conditions', 'effects', 'choices', 'duration',
+        'interval_seconds', 'conditions', 'effects', 'choices', 'duration',
     ];
 
     protected $casts = [

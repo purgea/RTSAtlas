@@ -1,4 +1,4 @@
-import { TILE_SIZE, TERRAIN_COLOR, COMP } from '../constants.js';
+import { TILE, TILE_SIZE, TERRAIN_COLOR, COMP } from '../constants.js';
 import { spriteCache } from '../sprites/SpriteCache.js';
 
 /**
@@ -27,7 +27,7 @@ export class RenderSystem {
     this._oreAnim    = 0; // oscillating glow phase
   }
 
-  render(alpha, dt, selectedEntities, selectionRect, hoverTile, buildMode) {
+  render(alpha, dt, selectedEntities, selectionRect, hoverTile, buildMode, moveMarkers = []) {
     const { ctx, map, camera } = this;
     this._oreAnim += dt * 2.0;
 
@@ -38,6 +38,7 @@ export class RenderSystem {
     this._drawOreFields(selectedEntities);
     this._drawBuildings(selectedEntities);
     this._drawUnits(selectedEntities);
+    this._drawMoveMarkers(moveMarkers);
     this.projectiles?.draw(ctx, camera);
     this.particles?.draw(ctx, camera);
 
@@ -67,6 +68,7 @@ export class RenderSystem {
 
         ctx.fillStyle = TERRAIN_COLOR[tile] ?? '#222';
         ctx.fillRect(sc.x, sc.y, ts + 0.5, ts + 0.5);
+        this._drawTileDetail(ctx, tile, x, y, sc.x, sc.y, ts);
 
         if (fog === 1) {
           ctx.fillStyle = 'rgba(0,0,0,0.48)';
@@ -74,6 +76,71 @@ export class RenderSystem {
         }
       }
     }
+  }
+
+  _drawTileDetail(ctx, tile, tx, ty, sx, sy, ts) {
+    const seed = (tx * 73856093) ^ (ty * 19349663) ^ (tile * 83492791);
+    const n = Math.abs(seed % 1000) / 1000;
+
+    ctx.save();
+    if (tile === TILE.GRASS || tile === TILE.FARMLAND) {
+      ctx.strokeStyle = n > 0.5 ? 'rgba(185,215,130,0.18)' : 'rgba(20,55,25,0.18)';
+      ctx.lineWidth = Math.max(1, ts * 0.035);
+      const blades = 2 + Math.floor(n * 3);
+      for (let i = 0; i < blades; i++) {
+        const px = sx + ((n * 97 + i * 23) % 1) * ts;
+        const py = sy + ((n * 53 + i * 37) % 1) * ts;
+        ctx.beginPath();
+        ctx.moveTo(px, py + ts * 0.14);
+        ctx.lineTo(px + ts * 0.08, py);
+        ctx.stroke();
+      }
+    } else if (tile === TILE.SAND) {
+      ctx.strokeStyle = 'rgba(255,235,170,0.16)';
+      ctx.lineWidth = Math.max(1, ts * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(sx + ts * 0.12, sy + ts * (0.25 + n * 0.35));
+      ctx.quadraticCurveTo(sx + ts * 0.46, sy + ts * (0.12 + n * 0.18), sx + ts * 0.88, sy + ts * (0.32 + n * 0.25));
+      ctx.stroke();
+    } else if (tile === TILE.WATER || tile === TILE.DEEP_WATER) {
+      ctx.strokeStyle = tile === TILE.DEEP_WATER ? 'rgba(120,170,255,0.16)' : 'rgba(170,220,255,0.22)';
+      ctx.lineWidth = Math.max(1, ts * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(sx + ts * 0.08, sy + ts * (0.35 + n * 0.2));
+      ctx.quadraticCurveTo(sx + ts * 0.38, sy + ts * (0.25 + n * 0.2), sx + ts * 0.70, sy + ts * (0.35 + n * 0.2));
+      ctx.quadraticCurveTo(sx + ts * 0.86, sy + ts * (0.42 + n * 0.2), sx + ts * 0.96, sy + ts * (0.34 + n * 0.2));
+      ctx.stroke();
+    } else if (tile === TILE.MOUNTAIN || tile === TILE.CLIFF || tile === TILE.RUINS) {
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.moveTo(sx + ts * (0.20 + n * 0.18), sy + ts * 0.22);
+      ctx.lineTo(sx + ts * (0.46 + n * 0.16), sy + ts * 0.74);
+      ctx.lineTo(sx + ts * (0.10 + n * 0.22), sy + ts * 0.68);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.beginPath();
+      ctx.moveTo(sx + ts * (0.20 + n * 0.18), sy + ts * 0.22);
+      ctx.lineTo(sx + ts * (0.32 + n * 0.18), sy + ts * 0.44);
+      ctx.lineTo(sx + ts * (0.28 + n * 0.12), sy + ts * 0.48);
+      ctx.closePath();
+      ctx.fill();
+    } else if (tile === TILE.FOREST) {
+      ctx.fillStyle = 'rgba(5,30,8,0.30)';
+      ctx.beginPath();
+      ctx.arc(sx + ts * (0.30 + n * 0.34), sy + ts * (0.32 + n * 0.28), ts * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(95,145,55,0.20)';
+      ctx.beginPath();
+      ctx.arc(sx + ts * (0.36 + n * 0.26), sy + ts * (0.26 + n * 0.18), ts * 0.10, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (tile === TILE.SWAMP) {
+      ctx.fillStyle = 'rgba(50,85,45,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(sx + ts * 0.45, sy + ts * (0.52 + n * 0.18), ts * 0.28, ts * 0.10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   // -------------------------------------------------------
@@ -143,7 +210,7 @@ export class RenderSystem {
       const color    = faction?.color ?? '#888888';
 
       // Get or create sprite
-      const sprite = spriteCache.get('building', bld.key, bld.category, color, Math.round(sizeTiles * TILE_SIZE));
+      const sprite = spriteCache.get('building', bld.sprite || bld.key, bld.category, color, Math.round(sizeTiles * TILE_SIZE));
 
       ctx.save();
       if (fog === 1) ctx.globalAlpha = 0.5;
@@ -218,7 +285,7 @@ export class RenderSystem {
       const sc      = camera.worldToScreen(pos.x, pos.y);
       const sizePx  = ts * 0.85;
       const color   = faction?.color ?? '#888888';
-      const sprite  = spriteCache.get('unit', unit.key, unit.category, color, 28);
+      const sprite  = spriteCache.get('unit', unit.sprite || unit.key, unit.category, color, 28);
 
       ctx.save();
       if (fog === 1) ctx.globalAlpha = 0.45;
@@ -259,6 +326,49 @@ export class RenderSystem {
   // Overlays
   // -------------------------------------------------------
 
+  _drawMoveMarkers(markers) {
+    if (!markers?.length) return;
+
+    const { ctx, camera } = this;
+    for (const marker of markers) {
+      const sc = camera.worldToScreen(marker.x, marker.y);
+      const pct = Math.min(1, marker.age / marker.duration);
+      const alpha = 1 - pct;
+      const size = (18 + pct * 18) * camera.zoom;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#35ff6a';
+      ctx.fillStyle = 'rgba(53,255,106,0.18)';
+      ctx.lineWidth = Math.max(2, 2.5 * camera.zoom);
+
+      ctx.beginPath();
+      ctx.arc(sc.x, sc.y, size * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(sc.x, sc.y - size * 0.62);
+      ctx.lineTo(sc.x + size * 0.18, sc.y - size * 0.18);
+      ctx.lineTo(sc.x + size * 0.62, sc.y);
+      ctx.lineTo(sc.x + size * 0.18, sc.y + size * 0.18);
+      ctx.lineTo(sc.x, sc.y + size * 0.62);
+      ctx.lineTo(sc.x - size * 0.18, sc.y + size * 0.18);
+      ctx.lineTo(sc.x - size * 0.62, sc.y);
+      ctx.lineTo(sc.x - size * 0.18, sc.y - size * 0.18);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(sc.x - size * 0.26, sc.y);
+      ctx.lineTo(sc.x + size * 0.26, sc.y);
+      ctx.moveTo(sc.x, sc.y - size * 0.26);
+      ctx.lineTo(sc.x, sc.y + size * 0.26);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   _drawHoverTile(tile) {
     const { ctx, camera } = this;
     const sc = camera.tileToScreen(tile.x, tile.y);
@@ -277,7 +387,7 @@ export class RenderSystem {
 
     // Get sprite for preview
     const color   = buildMode.factionColor ?? '#4169e1';
-    const sprite  = spriteCache.get('building', buildMode.key, buildMode.category, color, Math.round(buildMode.size ?? 2) * TILE_SIZE);
+    const sprite  = spriteCache.get('building', buildMode.sprite || buildMode.key, buildMode.category, color, Math.round(buildMode.size ?? 2) * TILE_SIZE);
 
     ctx.save();
     ctx.globalAlpha   = 0.65;

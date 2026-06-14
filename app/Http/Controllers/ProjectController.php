@@ -82,6 +82,7 @@ class ProjectController extends Controller
         $data = $request->validate([
             'name'       => 'required|string|max:80',
             'color'      => 'required|string|max:7',
+            'emblem'     => 'nullable|string|max:120',
             'description'=> 'nullable|string',
             'bonuses'    => 'nullable|array',
             'ai_profile' => 'nullable|array',
@@ -96,6 +97,7 @@ class ProjectController extends Controller
         $data = $request->validate([
             'name'       => 'sometimes|string|max:80',
             'color'      => 'sometimes|string|max:7',
+            'emblem'     => 'nullable|string|max:120',
             'description'=> 'nullable|string',
             'bonuses'    => 'nullable|array',
             'ai_profile' => 'nullable|array',
@@ -128,11 +130,13 @@ class ProjectController extends Controller
             'armor'         => 'integer|min:0',
             'speed'         => 'numeric|min:0.1',
             'range'         => 'integer|min:1',
+            'ranged_attack' => 'boolean',
             'sight'         => 'integer|min:1',
             'cost'          => 'nullable|array',
             'training_time' => 'integer|min:1',
             'requirements'  => 'nullable|array',
             'abilities'     => 'nullable|array',
+            'sprite'        => 'nullable|string|max:120',
             'color'         => 'nullable|string|max:7',
         ]);
 
@@ -150,11 +154,13 @@ class ProjectController extends Controller
             'armor'         => 'integer|min:0',
             'speed'         => 'numeric|min:0.1',
             'range'         => 'integer|min:1',
+            'ranged_attack' => 'boolean',
             'sight'         => 'integer|min:1',
             'cost'          => 'nullable|array',
             'training_time' => 'integer|min:1',
             'requirements'  => 'nullable|array',
             'abilities'     => 'nullable|array',
+            'sprite'        => 'nullable|string|max:120',
             'color'         => 'nullable|string|max:7',
         ]);
 
@@ -188,6 +194,7 @@ class ProjectController extends Controller
             'requirements'=> 'nullable|array',
             'provides'    => 'nullable|array',
             'trains'      => 'nullable|array',
+            'sprite'      => 'nullable|string|max:120',
             'color'       => 'nullable|string|max:7',
         ]);
 
@@ -209,6 +216,7 @@ class ProjectController extends Controller
             'requirements'=> 'nullable|array',
             'provides'    => 'nullable|array',
             'trains'      => 'nullable|array',
+            'sprite'      => 'nullable|string|max:120',
             'color'       => 'nullable|string|max:7',
         ]);
 
@@ -281,7 +289,7 @@ class ProjectController extends Controller
             'name'             => 'required|string|max:80',
             'type'             => 'required|string',
             'description'      => 'nullable|string',
-            'base_probability' => 'numeric|min:0|max:1',
+            'interval_seconds' => 'integer|min:1',
             'conditions'       => 'nullable|array',
             'effects'          => 'nullable|array',
             'choices'          => 'nullable|array',
@@ -298,7 +306,7 @@ class ProjectController extends Controller
             'name'             => 'sometimes|string|max:80',
             'type'             => 'sometimes|string',
             'description'      => 'nullable|string',
-            'base_probability' => 'numeric|min:0|max:1',
+            'interval_seconds' => 'integer|min:1',
             'conditions'       => 'nullable|array',
             'effects'          => 'nullable|array',
             'choices'          => 'nullable|array',
@@ -313,6 +321,25 @@ class ProjectController extends Controller
     {
         $event->delete();
         return response()->json(['ok' => true]);
+    }
+
+    // -------------------------------------------------------
+    // Resource CRUD
+    // -------------------------------------------------------
+
+    public function updateResource(Request $request, Project $project, ResourceConfig $resource)
+    {
+        $data = $request->validate([
+            'key'                => 'sometimes|string|max:60',
+            'name'               => 'sometimes|string|max:80',
+            'icon'               => 'nullable|string|max:120',
+            'color'              => 'sometimes|string|max:7',
+            'max_storage'        => 'integer|min:1',
+            'affects_population' => 'boolean',
+        ]);
+
+        $resource->update($data);
+        return response()->json($resource);
     }
 
     // -------------------------------------------------------

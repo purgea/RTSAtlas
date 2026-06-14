@@ -28,6 +28,7 @@ Route::delete('/projects/{project}/techs/{tech}', [ProjectController::class, 'de
 Route::post('/projects/{project}/events', [ProjectController::class, 'storeEvent'])->name('events.store');
 Route::patch('/projects/{project}/events/{event}', [ProjectController::class, 'updateEvent'])->name('events.update');
 Route::delete('/projects/{project}/events/{event}', [ProjectController::class, 'destroyEvent'])->name('events.destroy');
+Route::patch('/projects/{project}/resources/{resource}', [ProjectController::class, 'updateResource'])->name('resources.update');
 
 // Game runtime
 Route::post('/projects/{project}/sessions', [GameController::class, 'create'])->name('game.create');

@@ -1,9 +1,6 @@
-// EventSystem removed — random events conflict with C&C pacing
-import { SeededRandom } from '../utils/SeededRandom.js';
-
 /**
- * EventSystem — fires dynamic world events based on game state.
- * Each event has conditions, probability, duration, and effects.
+ * EventSystem — fires dynamic world events on fixed per-event timers.
+ * Example: interval_seconds: 300 triggers an event every five minutes.
  */
 export class EventSystem {
   constructor(ecs, map, factionResources, config, activeEvents) {
@@ -12,39 +9,40 @@ export class EventSystem {
     this.factionResources = factionResources;
     this.config           = config;
     this.activeEvents     = activeEvents; // shared mutable array
-    this._rng             = new SeededRandom(Date.now());
-    this._checkInterval   = TICKS_PER_SECOND * 30; // check every 30s
+    this._timers          = new Map(); // event key -> elapsed seconds
   }
 
-  update(dt, tick, gameYear) {
+  update(dt) {
     // Tick active events
     for (let i = this.activeEvents.length - 1; i >= 0; i--) {
       const ev = this.activeEvents[i];
-      ev.remainingTicks -= 1;
+      ev.remainingSeconds -= dt;
 
-      if (ev.remainingTicks <= 0) {
+      if (ev.remainingSeconds <= 0) {
         this._resolveEvent(ev);
         this.activeEvents.splice(i, 1);
       }
     }
 
-    // Check for new events
-    if (tick % this._checkInterval !== 0) return;
-
     const eventConfigs = this.config.eventConfigs || [];
     for (const def of eventConfigs) {
-      if (!this._checkConditions(def.conditions, gameYear)) continue;
-      if (!this._rng.chance(def.base_probability ?? 0.05)) continue;
+      if (!this._checkConditions(def.conditions)) continue;
 
-      this._fireEvent(def, gameYear);
+      const key = def.key;
+      const interval = Math.max(1, Number(def.interval_seconds ?? 300));
+      const elapsed = (this._timers.get(key) ?? 0) + dt;
+      if (elapsed < interval) {
+        this._timers.set(key, elapsed);
+        continue;
+      }
+
+      this._timers.set(key, elapsed % interval);
+      this._fireEvent(def);
     }
   }
 
-  _checkConditions(conditions, gameYear) {
+  _checkConditions(conditions) {
     if (!conditions) return true;
-
-    if (conditions.min_year && gameYear < conditions.min_year) return false;
-    if (conditions.max_year && gameYear > conditions.max_year) return false;
 
     // Resource condition
     if (conditions.resource_below) {
@@ -57,7 +55,7 @@ export class EventSystem {
     return true;
   }
 
-  _fireEvent(def, gameYear) {
+  _fireEvent(def) {
     const { ecs } = this;
 
     // Apply immediate effects to all factions (or targeted)
@@ -79,8 +77,7 @@ export class EventSystem {
       description:   def.description,
       effects:       effects,
       choices:       def.choices || [],
-      remainingTicks: duration > 0 ? duration * TICKS_PER_SECOND : 1,
-      gameYear,
+      remainingSeconds: duration > 0 ? duration : 0,
     };
 
     if (duration > 0) {
@@ -125,13 +122,13 @@ export class EventSystem {
     }
 
     // Resolve event immediately after choice
-    event.remainingTicks = 0;
+    event.remainingSeconds = 0;
     this.ecs.emit('eventChoice', { event, choice });
   }
 
   /** Manually trigger an event by key (for testing/scenario scripts) */
   triggerEvent(key) {
     const def = (this.config.eventConfigs || []).find(e => e.key === key);
-    if (def) this._fireEvent(def, 0);
+    if (def) this._fireEvent(def);
   }
 }

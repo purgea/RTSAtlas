@@ -48,7 +48,7 @@ export class CombatSystem {
       const targetPos = ecs.getComponent(combat.targetId, COMP.POSITION);
       if (!targetPos) { combat.targetId = null; continue; }
 
-      const dist      = Math.hypot(pos.x - targetPos.x, pos.y - targetPos.y);
+      const dist      = this._distanceToTarget(id, combat.targetId, pos, targetPos);
       const rangePx   = (combat.range ?? 5) * TILE_SIZE;
       const sightDropPx = rangePx * 2.5;
 
@@ -110,11 +110,23 @@ export class CombatSystem {
     }
   }
 
+  _distanceToTarget(attackerId, targetId, attackerPos, targetPos) {
+    const building = this.ecs.getComponent(targetId, COMP.BUILDING);
+    if (!building) return Math.hypot(attackerPos.x - targetPos.x, attackerPos.y - targetPos.y);
+
+    const half = (building.size || 1) * TILE_SIZE * 0.5;
+    const dx = Math.max(Math.abs(attackerPos.x - targetPos.x) - half, 0);
+    const dy = Math.max(Math.abs(attackerPos.y - targetPos.y) - half, 0);
+    return Math.hypot(dx, dy);
+  }
+
   _applyDamage(attackerId, targetId, damage, ap) {
     const { ecs } = this;
     const targetHp = ecs.getComponent(targetId, COMP.HEALTH);
     if (!targetHp) return;
-    const armor     = ecs.getComponent(targetId, COMP.COMBAT)?.armor ?? 0;
+    const armor     = ecs.getComponent(targetId, COMP.COMBAT)?.armor
+      ?? ecs.getComponent(targetId, COMP.BUILDING)?.armor
+      ?? 0;
     const effective = Math.max(1, damage - Math.max(0, armor - ap));
     targetHp.hp    -= effective;
     if (targetHp.hp <= 0 && !this._pendingDestroy.includes(targetId)) {
@@ -170,4 +182,3 @@ export class CombatSystem {
     if (combat) combat.targetId = targetId;
   }
 }
-

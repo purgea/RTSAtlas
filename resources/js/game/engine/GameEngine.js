@@ -12,11 +12,12 @@ import { HarvesterAI }       from '../systems/HarvesterAI.js';
 import { ProjectileSystem }  from '../systems/ProjectileSystem.js';
 import { ParticleSystem }    from '../systems/ParticleSystem.js';
 import { AISystem }          from '../systems/AISystem.js';
+import { EventSystem }       from '../systems/EventSystem.js';
 import { ProceduralGenerator } from '../generation/ProceduralGenerator.js';
 import { SpatialGrid }       from '../utils/SpatialGrid.js';
 import { spriteCache }       from '../sprites/SpriteCache.js';
 import {
-  COMP, TILE_SIZE, TICKS_PER_SECOND,
+  COMP, TILE_SIZE,
   CREDITS_KEY, HARVESTER_CARRY, ORE_REGEN_RATE,
   categoryToRole, UNIT_ROLE,
 } from '../constants.js';
@@ -82,7 +83,9 @@ export class GameEngine {
     this._selectionRect   = null;
     this._keys            = new Set();
     this._mouse           = { x: 0, y: 0, buttons: 0 };
+    this._screenMouse     = { x: 0, y: 0, active: false };
     this._controlGroups   = {}; // 1..9 → Set<entityId>
+    this._moveMarkers     = [];
 
     // Systems (set up in _initSystems after map is ready)
     this.systems       = [];
@@ -94,7 +97,9 @@ export class GameEngine {
     this.projectiles   = null;
     this.particles     = null;
     this.aiSystem      = null;
+    this.eventSystem   = null;
     this.render        = null;
+    this.activeEvents  = [];
   }
 
   // -------------------------------------------------------
@@ -169,7 +174,6 @@ export class GameEngine {
   stop()       { this.loop.stop();  }
   pause()      { this.loop.pause(); }
   resume()     { this.loop.resume();}
-  setSpeed(s)  { this.loop.setSpeed(s); }
 
   // -------------------------------------------------------
   // Systems init
@@ -188,6 +192,7 @@ export class GameEngine {
       this.factionResources, this.config,
       this.production, this.pathfinding, this.factionEnemies,
     );
+    this.eventSystem = new EventSystem(this.ecs, this.map, this.factionResources, this.config, this.activeEvents);
     this.render = new RenderSystem(
       this.ctx, this.map, this.camera, this.ecs,
       this.projectiles, this.particles,
@@ -207,6 +212,7 @@ export class GameEngine {
       this.production,
       this.harvesterAI,
       this.aiSystem,
+      this.eventSystem,
     ];
   }
 
@@ -236,6 +242,7 @@ export class GameEngine {
         id:       fId,
         name:     fdef.name,
         color:    fdef.color || (i === 0 ? '#4169e1' : '#cc2222'),
+        emblem:   fdef.emblem || '',
         isPlayer,
         aiProfile: fdef.ai_profile || { aggression: 0.5, expansion: 0.5, economy: 0.5 },
       };
@@ -246,6 +253,7 @@ export class GameEngine {
         id:       fId,
         name:     fdef.name,
         color:    fdef.color || (i === 0 ? '#4169e1' : '#cc2222'),
+        emblem:   fdef.emblem || '',
         isPlayer,
         aiProfile: fdef.ai_profile || {},
       });
@@ -259,7 +267,9 @@ export class GameEngine {
       const sp = this._findNearestClearArea(rawSpawn.x, rawSpawn.y, conYardDef?.size || 3, 16) || rawSpawn;
 
       if (conYardDef) {
-        this._spawnBuilding(conYardDef.key, fId, sp.x, sp.y, conYardDef);
+        const baseId = this._spawnBuilding(conYardDef.key, fId, sp.x, sp.y, conYardDef);
+        const base = this.ecs.getComponent(baseId, COMP.BUILDING);
+        if (base) base.isBaseCore = true;
       }
 
       // Spawn power plant
@@ -341,6 +351,8 @@ export class GameEngine {
     this.ecs.addComponent(id, COMP.POSITION,   { x: wx, y: wy });
     this.ecs.addComponent(id, COMP.UNIT, {
       key,
+      name:      def.name     || key,
+      sprite:    def.sprite   || '',
       category:  def.category || 'infantry',
       sight:     def.sight    || 6,
       speed:     def.speed    || 3,
@@ -357,7 +369,8 @@ export class GameEngine {
     this.ecs.addComponent(id, COMP.COMBAT, {
       damage:        def.damage        || 10,
       armor:         def.armor         || 0,
-      range:         def.range         || 5,
+      range:         def.ranged_attack ? (def.range || 5) : 1,
+      ranged:        !!def.ranged_attack,
       attackRate:    1.0,
       attackCooldown: 0,
       targetId:      null,
@@ -442,7 +455,10 @@ export class GameEngine {
     this.ecs.addComponent(id, COMP.POSITION,  { x: wx, y: wy });
     this.ecs.addComponent(id, COMP.BUILDING,  {
       key,
+      name:          def.name   || key,
+      sprite:        def.sprite || '',
       category:      def.category     || 'military',
+      armor:         def.armor        || 0,
       size,
       tileX:         tx,
       tileY:         ty,
@@ -533,6 +549,8 @@ export class GameEngine {
 
   _tick(dt) {
     this.tick++;
+    this._updateEdgeScroll(dt);
+    this._updateMoveMarkers(dt);
 
     // Update projectiles and particles (cosmetic — not in systems[] for ordering control)
     this.projectiles.update(dt);
@@ -550,6 +568,7 @@ export class GameEngine {
       this._selectionRect,
       this.hoverTile,
       this.buildMode,
+      this._moveMarkers,
     );
   }
 
@@ -566,6 +585,9 @@ export class GameEngine {
     canvas.addEventListener('wheel',       e => this._onWheel(e), { passive: false });
     canvas.addEventListener('contextmenu', e => { e.preventDefault(); this._onRightClick(e); });
 
+    window.addEventListener('mousemove', e => {
+      this._screenMouse = { x: e.clientX, y: e.clientY, active: true };
+    });
     window.addEventListener('keydown', e => { this._keys.add(e.key); this._onKeyDown(e); });
     window.addEventListener('keyup',   e => this._keys.delete(e.key));
   }
@@ -644,6 +666,7 @@ export class GameEngine {
     const tile = this.camera.screenToTile(x, y);
 
     if (this.selectedEntities.size === 0) return;
+    this._addMoveMarker(tile.x, tile.y);
 
     // Check for target entity at cursor
     const target = this._entityAt(wc.x, wc.y);
@@ -652,10 +675,13 @@ export class GameEngine {
       const tFaction = this.ecs.getComponent(target, COMP.FACTION);
       if (tFaction && this.factionEnemies.get(this.playerFactionId)?.has(tFaction.id)) {
         // Attack enemy
+        const moveTile = this.ecs.hasComponent(target, COMP.BUILDING)
+          ? this._findNearestPassableTile(tile.x, tile.y, 6)
+          : tile;
         for (const id of this.selectedEntities) {
           if (!this.ecs.hasComponent(id, COMP.UNIT)) continue;
           this.combat.attackTarget(id, target);
-          this.pathfinding.requestImmediate(id, tile.x, tile.y);
+          if (moveTile) this.pathfinding.requestImmediate(id, moveTile.x, moveTile.y);
         }
         return;
       }
@@ -675,6 +701,40 @@ export class GameEngine {
       // Player commands always immediate (synchronous pathfind)
       this.pathfinding.requestImmediate(id, tile.x + ox, tile.y + oy);
     });
+  }
+
+  _addMoveMarker(tx, ty) {
+    this._moveMarkers.push({
+      x: (tx + 0.5) * TILE_SIZE,
+      y: (ty + 0.5) * TILE_SIZE,
+      age: 0,
+      duration: 0.55,
+    });
+  }
+
+  _updateMoveMarkers(dt) {
+    for (const marker of this._moveMarkers) marker.age += dt;
+    this._moveMarkers = this._moveMarkers.filter(marker => marker.age < marker.duration);
+  }
+
+  _updateEdgeScroll(dt) {
+    if (!this.map || !this.camera) return;
+    if (!this._screenMouse.active) return;
+
+    const edge = 20;
+    const speed = 720;
+    let dx = 0;
+
+    if (this._screenMouse.x <= edge) {
+      dx = -speed * dt;
+    } else if (this._screenMouse.x >= window.innerWidth - edge) {
+      dx = speed * dt;
+    }
+
+    if (dx !== 0) {
+      this.camera.pan(dx, 0);
+      this.camera.clamp(this.map.width, this.map.height);
+    }
   }
 
   _onKeyDown(e) {
@@ -757,6 +817,15 @@ export class GameEngine {
   }
 
   _entityAt(wx, wy) {
+    const tx = Math.floor(wx / TILE_SIZE);
+    const ty = Math.floor(wy / TILE_SIZE);
+    if (this.map?.isInBounds(tx, ty)) {
+      const buildingId = this.map.getBuilding?.(tx, ty);
+      if (buildingId != null && buildingId !== -1 && this.ecs.exists(buildingId)) {
+        return buildingId;
+      }
+    }
+
     const nearby = this.spatial.queryRadius(wx, wy, TILE_SIZE * 1.4);
     let best = null, bestDist = Infinity;
     for (const id of nearby) {
@@ -844,14 +913,19 @@ export class GameEngine {
   // -------------------------------------------------------
 
   _checkVictory() {
-    // Player loses if all Con Yards destroyed
     let playerAlive = false, enemyAlive = false;
     for (const id of this.ecs.query(COMP.BUILDING, COMP.FACTION)) {
       const f = this.ecs.getComponent(id, COMP.FACTION);
       const b = this.ecs.getComponent(id, COMP.BUILDING);
       const k = (b.key || '').toLowerCase();
-      const isHQ = k.includes('castle') || k.includes('con_yard') || k.includes('hq') || k.includes('headquarters');
-      if (!isHQ) continue;
+      const isBaseCore = b.isBaseCore
+        || k.includes('castle')
+        || k.includes('con_yard')
+        || k.includes('construction')
+        || k.includes('command')
+        || k.includes('headquarters')
+        || k.includes('hq');
+      if (!isBaseCore) continue;
       if (f.isPlayer) playerAlive = true;
       else            enemyAlive  = true;
     }
@@ -881,6 +955,7 @@ export class GameEngine {
     const meta = (this._factionMeta || {})[this.playerFactionId] || {};
     this.buildMode = {
       key,
+      sprite:       def?.sprite      || '',
       category:     def?.category    || 'military',
       size:         def?.size        || 2,
       factionColor: meta.color       || '#4169e1',
@@ -903,7 +978,6 @@ export class GameEngine {
       tick:     this.tick,
       fps:      this.loop.fps,
       tps:      this.loop.tps,
-      speed:    this.loop.speed,
       credits,
       power:    pw,
       entities: this.ecs.entityCount ?? 0,

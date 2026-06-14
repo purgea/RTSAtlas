@@ -68,6 +68,7 @@ export class SpriteCache {
     if (type === 'unit')     this._drawUnit    (ctx, key, category, color, sizePx);
     else if (type === 'building') this._drawBuilding(ctx, key, category, color, sizePx);
     else if (type === 'ore') this._drawOreField(ctx, color, sizePx);
+    this._finishSprite(ctx, type, color, sizePx);
 
     this._cache.set(cacheKey, canvas);
     return canvas;
@@ -80,13 +81,13 @@ export class SpriteCache {
 
     for (const u of unitConfigs) {
       for (const c of factionColors) {
-        this.get('unit', u.key, u.category, c, 28);
+        this.get('unit', u.sprite || u.key, u.category, c, 28);
       }
     }
     for (const b of buildingConfigs) {
       const px = (b.size || 2) * TILE_SIZE;
       for (const c of factionColors) {
-        this.get('building', b.key, b.category, c, px);
+        this.get('building', b.sprite || b.key, b.category, c, px);
       }
     }
     // ore field sprite
@@ -109,6 +110,8 @@ export class SpriteCache {
     const k    = (key || '').toLowerCase();
 
     ctx.clearRect(0, 0, size, size);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
 
     if (role === UNIT_ROLE.HARVESTER || k.includes('harvest') || k.includes('worker')) {
       this._unitHarvester(ctx, factionColor, size);
@@ -367,6 +370,8 @@ export class SpriteCache {
   _drawBuilding(ctx, key, category, color, size) {
     const k = (key || '').toLowerCase();
     ctx.clearRect(0, 0, size, size);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
 
     if (k.includes('con_yard') || k.includes('castle') || k.includes('headquarters') || k.includes('hq')) {
       this._bldConYard(ctx, color, size);
@@ -432,9 +437,6 @@ export class SpriteCache {
     ctx.fillRect(s/2-s*0.02, s/2-s*0.28, s*0.04, s*0.14);  // crane tower
     ctx.strokeStyle = dark; ctx.lineWidth = s*0.015;
     ctx.beginPath(); ctx.moveTo(s/2, s/2-s*0.28); ctx.lineTo(s/2+s*0.18, s/2-s*0.18); ctx.stroke();
-    // Label
-    ctx.fillStyle = light; ctx.font = `bold ${s*0.12}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('HQ', s/2, s/2+s*0.06);
   }
 
   _bldBarracks(ctx, color, s) {
@@ -463,8 +465,6 @@ export class SpriteCache {
     ctx.beginPath(); ctx.moveTo(s-p-s*0.16, p+s*0.10); ctx.lineTo(s-p-s*0.16, p+s*0.24); ctx.stroke();
     ctx.fillStyle = color;
     ctx.fillRect(s-p-s*0.16, p+s*0.10, s*0.10, s*0.08);
-    ctx.fillStyle = light; ctx.font = `bold ${s*0.11}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('BRKX', s/2, s*0.72);
   }
 
   _bldWarFactory(ctx, color, s) {
@@ -492,8 +492,6 @@ export class SpriteCache {
     ctx.fillStyle = 'rgba(150,150,150,0.4)';
     ctx.beginPath(); ctx.arc(p+s*0.24, p+s*0.04, s*0.05, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(p+s*0.64, p+s*0.04, s*0.05, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = light; ctx.font = `bold ${s*0.10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('FACTORY', s/2, p+s*0.25);
   }
 
   _bldRefinery(ctx, color, s) {
@@ -523,8 +521,6 @@ export class SpriteCache {
     ctx.fillStyle = '#ffd700'; ctx.globalAlpha = 0.6;
     ctx.beginPath(); ctx.arc(p+s*0.28, s/2+s*0.08, s*0.08, 0, Math.PI*2); ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.fillStyle = light; ctx.font = `bold ${s*0.10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('REF', p+s*0.28, p+s*0.30);
   }
 
   _bldPowerPlant(ctx, color, s) {
@@ -549,8 +545,6 @@ export class SpriteCache {
     // Base lines
     ctx.strokeStyle = color; ctx.lineWidth = s*0.02;
     ctx.strokeRect(p+s*0.08, s/2, s-p*2-s*0.16, s*0.16);
-    ctx.fillStyle = light; ctx.font = `bold ${s*0.10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('PWR', s/2, s/2+s*0.32);
   }
 
   _bldSilo(ctx, color, s) {
@@ -596,8 +590,6 @@ export class SpriteCache {
     for (let i = 0; i < 3; i++) {
       ctx.beginPath(); ctx.arc(s/2, s/2, s*(0.10+i*0.08), Math.PI*1.2, Math.PI*1.8); ctx.stroke();
     }
-    ctx.fillStyle = light; ctx.font = `bold ${s*0.10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('RAD', s/2, s*0.76);
   }
 
   _bldTower(ctx, color, s) {
@@ -658,6 +650,100 @@ export class SpriteCache {
     for (const c of crystalPositions) {
       this._drawCrystal(ctx, c.x * s, c.y * s, c.r * s, c.angle, color);
     }
+  }
+
+  _finishSprite(ctx, type, color, s) {
+    if (type === 'building') {
+      this._buildingFinish(ctx, color, s);
+    } else if (type === 'unit') {
+      this._unitFinish(ctx, color, s);
+    } else if (type === 'ore') {
+      this._oreFinish(ctx, color, s);
+    }
+  }
+
+  _buildingFinish(ctx, color, s) {
+    const p = s * 0.04;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+
+    const light = ctx.createLinearGradient(0, 0, s, s);
+    light.addColorStop(0, 'rgba(255,255,255,0.22)');
+    light.addColorStop(0.45, 'rgba(255,255,255,0.04)');
+    light.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = light;
+    ctx.fillRect(0, 0, s, s);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    for (let i = 0; i < 5; i++) {
+      const x = p + i * s * 0.18;
+      ctx.fillRect(x, p, s * 0.025, s - p * 2);
+    }
+
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    for (let i = 0; i < 38; i++) {
+      const x = (i * 37) % Math.max(1, Math.floor(s));
+      const y = (i * 53) % Math.max(1, Math.floor(s));
+      ctx.fillRect(x, y, Math.max(1, s * 0.018), Math.max(1, s * 0.018));
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(0,0,0,0.72)';
+    ctx.lineWidth = Math.max(2, s * 0.028);
+    ctx.strokeRect(p, p, s - p * 2, s - p * 2);
+
+    ctx.strokeStyle = alpha(lighten(color, 90), 0.75);
+    ctx.lineWidth = Math.max(1, s * 0.014);
+    ctx.strokeRect(p + s * 0.035, p + s * 0.035, s - (p + s * 0.035) * 2, s - (p + s * 0.035) * 2);
+
+    ctx.fillStyle = alpha(color, 0.92);
+    ctx.beginPath();
+    ctx.moveTo(s * 0.10, s * 0.10);
+    ctx.lineTo(s * 0.28, s * 0.10);
+    ctx.lineTo(s * 0.10, s * 0.28);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  _unitFinish(ctx, color, s) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+
+    const bevel = ctx.createLinearGradient(0, 0, s, s);
+    bevel.addColorStop(0, 'rgba(255,255,255,0.30)');
+    bevel.addColorStop(0.35, 'rgba(255,255,255,0.02)');
+    bevel.addColorStop(1, 'rgba(0,0,0,0.34)');
+    ctx.fillStyle = bevel;
+    ctx.fillRect(0, 0, s, s);
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(0,0,0,0.58)';
+    ctx.lineWidth = Math.max(1.2, s * 0.045);
+    ctx.beginPath();
+    ctx.ellipse(s / 2, s / 2, s * 0.42, s * 0.34, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = alpha(lighten(color, 95), 0.95);
+    ctx.beginPath();
+    ctx.arc(s * 0.33, s * 0.28, Math.max(1.2, s * 0.045), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  _oreFinish(ctx, color, s) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    const glow = ctx.createRadialGradient(s / 2, s / 2, 1, s / 2, s / 2, s * 0.55);
+    glow.addColorStop(0, alpha(lighten(color, 120), 0.85));
+    glow.addColorStop(0.55, alpha(color, 0.28));
+    glow.addColorStop(1, 'rgba(0,0,0,0.35)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, s, s);
+    ctx.restore();
   }
 
   _drawCrystal(ctx, cx, cy, r, angle, color) {

@@ -13,6 +13,7 @@
         <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
           <tr>
             <th class="px-4 py-2 text-left">Key</th>
+            <th class="px-4 py-2 text-left">Sprite</th>
             <th class="px-4 py-2 text-left">Name</th>
             <th class="px-4 py-2 text-left">Category</th>
             <th class="px-4 py-2 text-right">HP</th>
@@ -25,6 +26,7 @@
         <tbody class="divide-y divide-gray-800">
           <tr v-for="b in buildings" :key="b.id" class="bg-gray-900 hover:bg-gray-800/50">
             <td class="px-4 py-2 font-mono text-amber-400 text-xs">{{ b.key }}</td>
+            <td class="px-4 py-2"><span class="sprite-chip">{{ b.sprite || b.key }}</span></td>
             <td class="px-4 py-2 font-medium text-white">{{ b.name }}</td>
             <td class="px-4 py-2 text-gray-400 capitalize">{{ b.category }}</td>
             <td class="px-4 py-2 text-right text-green-400">{{ b.health }}</td>
@@ -36,7 +38,7 @@
               <button @click="remove(b)" class="text-xs bg-red-900 hover:bg-red-700 px-2 py-0.5 rounded">Del</button>
             </td>
           </tr>
-          <tr v-if="!buildings?.length"><td colspan="8" class="px-4 py-8 text-center text-gray-500">No buildings defined.</td></tr>
+          <tr v-if="!buildings?.length"><td colspan="9" class="px-4 py-8 text-center text-gray-500">No buildings defined.</td></tr>
         </tbody>
       </table>
     </div>
@@ -61,6 +63,20 @@
             <div><label class="label">Armor</label><input v-model.number="form.armor" type="number" min="0" class="input" /></div>
             <div><label class="label">Size (tiles)</label><input v-model.number="form.size" type="number" min="1" max="4" class="input" /></div>
             <div><label class="label">Build Time (s)</label><input v-model.number="form.build_time" type="number" min="1" class="input" /></div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 mb-3">
+            <div class="col-span-2">
+              <label class="label">Sprite Style</label>
+              <select v-model="form.sprite" class="input">
+                <option value="">Auto from building key/category</option>
+                <option v-for="s in spritePresets" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Sprite Key</label>
+              <input v-model="form.sprite" type="text" placeholder="war_factory" class="input" />
+            </div>
           </div>
 
           <div class="grid grid-cols-2 gap-4 mb-3 border-t border-gray-700 pt-3">
@@ -116,7 +132,8 @@ const saving   = ref(false);
 const categories = ['military','economy','civic','production','defence','religious','sanitation'];
 const resources  = ['gold','food','wood','stone','iron','faith'];
 
-const blank = () => ({ key:'', name:'', category:'economy', health:400, armor:3, size:2, build_time:60, faction_id:null, cost:{gold:100,wood:80}, production:{}, trains:[], provides:{} });
+const spritePresets = ['con_yard','command_hq','barracks','war_factory','refinery','power_plant','silo','radar','turret','tower','generic'];
+const blank = () => ({ key:'', name:'', category:'economy', health:400, armor:3, size:2, build_time:60, faction_id:null, sprite:'', cost:{gold:100,wood:80}, production:{}, trains:[], provides:{} });
 const form  = reactive(blank());
 const trainsText  = ref('');
 const providesText= ref('');
@@ -163,4 +180,5 @@ const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content ??
 .label { display: block; font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.25rem; }
 .input { width: 100%; background: #1f2937; border: 1px solid #4b5563; border-radius: 0.25rem; padding: 0.5rem 0.75rem; color: #fff; font-size: 0.875rem; outline: none; }
 .input:focus { border-color: #f59e0b; }
+.sprite-chip { display: inline-flex; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid #374151; border-radius: 0.25rem; padding: 0.125rem 0.375rem; color: #93c5fd; background: #111827; font-size: 0.7rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 </style>

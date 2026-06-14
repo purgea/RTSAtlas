@@ -19,7 +19,7 @@
         </div>
         <p class="text-xs text-gray-400 mb-2">{{ e.description || '—' }}</p>
         <div class="flex gap-3 text-xs text-gray-500">
-          <span>Prob: {{ Math.round((e.base_probability||0)*100) }}%/yr</span>
+          <span>Every: {{ formatInterval(e.interval_seconds) }}</span>
           <span>Duration: {{ e.duration > 0 ? e.duration + 's' : 'Instant' }}</span>
           <span v-if="(e.choices||[]).length">{{ e.choices.length }} choice(s)</span>
         </div>
@@ -44,7 +44,7 @@
           </div>
           <div class="mb-3"><label class="label">Description</label><textarea v-model="form.description" rows="3" class="input resize-none"></textarea></div>
           <div class="grid grid-cols-2 gap-3 mb-3">
-            <div><label class="label">Probability per year (0–1)</label><input v-model.number="form.base_probability" type="number" min="0" max="1" step="0.01" class="input" /></div>
+            <div><label class="label">Trigger Every (seconds)</label><input v-model.number="form.interval_seconds" type="number" min="1" class="input" /></div>
             <div><label class="label">Duration (seconds, 0=instant)</label><input v-model.number="form.duration" type="number" min="0" class="input" /></div>
           </div>
           <div class="mb-3">
@@ -85,8 +85,14 @@ const typeClass = (t) => ({
   discovery:'bg-teal-900 text-teal-300',
 })[t] || 'bg-gray-700 text-gray-300';
 
-const blank = () => ({ key:'', name:'', type:'disease', description:'', base_probability:0.02, duration:0, effects:{}, choices:[] });
+const blank = () => ({ key:'', name:'', type:'disease', description:'', interval_seconds:300, duration:0, effects:{}, choices:[] });
 const form  = reactive(blank());
+
+function formatInterval(seconds) {
+  const s = Number(seconds || 300);
+  if (s >= 60 && s % 60 === 0) return `${s / 60} min`;
+  return `${s}s`;
+}
 
 function openForm(e) {
   editing.value = e;
