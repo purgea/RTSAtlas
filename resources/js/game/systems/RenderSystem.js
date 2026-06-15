@@ -201,10 +201,18 @@ export class RenderSystem {
       if (field && this.camera.zoom > 0.7) {
         const text = new Text({
           text: String(Math.floor(field.amount)),
-          style: { fill: '#ffd700', fontSize: 9 / this.camera.zoom, fontFamily: 'sans-serif' },
+          resolution: Math.max(2, window.devicePixelRatio || 1),
+          style: {
+            fill: '#ffd700',
+            fontSize: 13,
+            fontFamily: 'sans-serif',
+            fontWeight: '700',
+            stroke: { color: '#101610', width: 3 },
+          },
         });
         text.anchor.set(0.5, 1);
         text.position.set(0, -TILE_SIZE * 0.8);
+        text.scale.set(1 / this.camera.zoom);
         group.addChild(text);
       }
 

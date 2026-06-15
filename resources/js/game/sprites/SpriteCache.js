@@ -113,7 +113,7 @@ export class SpriteCache {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
-    if (role === UNIT_ROLE.HARVESTER || k.includes('harvest') || k.includes('worker')) {
+    if (k.includes('harvest') || k.includes('worker')) {
       this._unitHarvester(ctx, factionColor, size);
     } else if (role === UNIT_ROLE.VEHICLE || k.includes('tank') || k.includes('vehicle') || k.includes('knight') || k.includes('siege') || k.includes('artillery') || k.includes('apc')) {
       if (k.includes('artillery') || k.includes('siege') || category === 'siege') {

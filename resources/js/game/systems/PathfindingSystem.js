@@ -59,7 +59,7 @@ export class PathfindingSystem {
     mov.urgentPath = false;
   }
 
-  /** Queue a non-urgent path (AI, harvester) */
+  /** Queue a non-urgent path (AI) */
   requestDeferred(entityId, targetX, targetY) {
     const mov = this.ecs.getComponent(entityId, COMP.MOVEMENT);
     if (!mov) return;

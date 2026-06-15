@@ -5,7 +5,7 @@ import { SeededRandom } from '../utils/SeededRandom.js';
  * AISystem — C&C wave-based AI.
  *
  * Per-faction state machine:
- *   ECONOMY  (0-3 min)  → build refinery, spawn harvester, power plant
+ *   ECONOMY  (0-3 min)  → build refinery, power plant
  *   MILITARY (3-6 min)  → build barracks, train infantry
  *   ASSAULT  (6+ min)   → build war factory, train vehicles, launch attack waves
  *
@@ -90,8 +90,6 @@ export class AISystem {
         if (!this._hasBuildingOfType(fId, 'power') && credits >= this._getBuildingCost('power')) {
           this._tryBuild(fId, 'power', 2);
         }
-        // 3. Spawn harvester from refinery
-        this._tryTrainFromBuilding(fId, 'refinery', UNIT_ROLE.HARVESTER);
         break;
       }
 

@@ -71,10 +71,6 @@
                 </div>
                 <span class="hp-text">{{ sel.health.hp }} / {{ sel.health.maxHp }}</span>
               </div>
-              <div v-if="sel.harvester" class="cargo-row">
-                <span>Cargo</span>
-                <strong>{{ Math.floor(sel.harvester.carryAmount) }} / {{ sel.harvester.maxCarry }}</strong>
-              </div>
             </div>
           </div>
         </template>

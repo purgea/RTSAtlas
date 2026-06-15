@@ -8,7 +8,6 @@ import { PathfindingSystem } from '../systems/PathfindingSystem.js';
 import { CombatSystem }      from '../systems/CombatSystem.js';
 import { ProductionSystem }  from '../systems/ProductionSystem.js';
 import { PowerSystem }       from '../systems/PowerSystem.js';
-import { HarvesterAI }       from '../systems/HarvesterAI.js';
 import { ProjectileSystem }  from '../systems/ProjectileSystem.js';
 import { ParticleSystem }    from '../systems/ParticleSystem.js';
 import { AISystem }          from '../systems/AISystem.js';
@@ -18,7 +17,7 @@ import { SpatialGrid }       from '../utils/SpatialGrid.js';
 import { spriteCache }       from '../sprites/SpriteCache.js';
 import {
   COMP, TILE_SIZE,
-  CREDITS_KEY, HARVESTER_CARRY, ORE_REGEN_RATE,
+  CREDITS_KEY,
   categoryToRole, UNIT_ROLE,
 } from '../constants.js';
 
@@ -33,7 +32,7 @@ import {
  *  - building.provides.power      = power contribution (+supply / -drain)
  *  - building.trains[]            = unit keys this building can produce
  *  - Ore fields from map.features where type === 'mine'
- *  - Harvesters: units where categoryToRole(cat) === UNIT_ROLE.HARVESTER
+ *  - Ore fields grant credits to factions with nearby units
  *  - Con Yard: building key containing 'castle'|'con_yard'|'hq'|'headquarters'
  *  - All AI factions are enemies of the player
  *
@@ -92,7 +91,6 @@ export class GameEngine {
     this.combat        = null;
     this.production    = null;
     this.power         = null;
-    this.harvesterAI   = null;
     this.projectiles   = null;
     this.particles     = null;
     this.aiSystem      = null;
@@ -185,7 +183,6 @@ export class GameEngine {
     this.combat      = new CombatSystem(this.ecs, this.spatial, this.projectiles, this.particles, this.factionEnemies, this.map, this.pathfinding);
     this.power       = new PowerSystem(this.ecs, this.factionPower, this.config);
     this.production  = new ProductionSystem(this.ecs, this.factionResources, this.factionPower, this.config);
-    this.harvesterAI = new HarvesterAI(this.ecs, this.spatial, this.factionResources, this.config);
     this.aiSystem    = new AISystem(
       this.ecs, this.map, this.spatial,
       this.factionResources, this.config,
@@ -209,7 +206,6 @@ export class GameEngine {
       this.combat,
       this.power,
       this.production,
-      this.harvesterAI,
       this.aiSystem,
       this.eventSystem,
     ];
@@ -298,11 +294,6 @@ export class GameEngine {
         }
       }
 
-      // Spawn starting harvester if refinery exists
-      const harvesterDef = (this.config.unitConfigs || []).find(u => categoryToRole(u.category) === UNIT_ROLE.HARVESTER);
-      if (harvesterDef && refineryDef) {
-        this._spawnUnit(harvesterDef.key, fId, sp.x + 1, sp.y + (conYardDef?.size || 3) + 4, harvesterDef);
-      }
     });
   }
 
@@ -318,7 +309,7 @@ export class GameEngine {
       this.ecs.addComponent(id, COMP.ORE_FIELD, {
         amount,
         maxAmount: amount,
-        regenRate: ORE_REGEN_RATE,
+        harvestAccumulator: 0,
       });
       this.spatial.insert(id, wx, wy);
     }
@@ -383,18 +374,6 @@ export class GameEngine {
       state:     'idle',
       facing:    0,
     });
-
-    if (role === UNIT_ROLE.HARVESTER) {
-      this.ecs.addComponent(id, COMP.HARVESTER, {
-        state:        'idle',
-        carryAmount:  0,
-        maxCarry:     HARVESTER_CARRY,
-        oreFieldId:   null,
-        targetPos:    null,
-        depositPos:   null,
-        harvestTimer: 0,
-      });
-    }
 
     this.ecs.addComponent(id, COMP.ORDER, { type: null });
     this.spatial.insert(id, wx, wy);
@@ -549,6 +528,7 @@ export class GameEngine {
   _tick(dt) {
     this.tick++;
     this._updateMoveMarkers(dt);
+    this._updateResourceNodes(dt);
 
     // Update projectiles and particles (cosmetic — not in systems[] for ordering control)
     this.projectiles.update(dt);
@@ -734,6 +714,40 @@ export class GameEngine {
   _updateMoveMarkers(dt) {
     for (const marker of this._moveMarkers) marker.age += dt;
     this._moveMarkers = this._moveMarkers.filter(marker => marker.age < marker.duration);
+  }
+
+  _updateResourceNodes(dt) {
+    if (!this.spatial) return;
+
+    const radius = TILE_SIZE * 1.5;
+    for (const fieldId of this.ecs.query(COMP.ORE_FIELD, COMP.POSITION)) {
+      const field = this.ecs.getComponent(fieldId, COMP.ORE_FIELD);
+      const fieldPos = this.ecs.getComponent(fieldId, COMP.POSITION);
+      if (!field || !fieldPos || field.amount <= 0) continue;
+
+      field.harvestAccumulator = (field.harvestAccumulator ?? 0) + dt;
+      if (field.harvestAccumulator < 1) continue;
+
+      const ticks = Math.floor(field.harvestAccumulator);
+      field.harvestAccumulator -= ticks;
+      for (let i = 0; i < ticks; i++) {
+        const nearby = this.spatial.queryRadius(fieldPos.x, fieldPos.y, radius);
+        for (const unitId of nearby) {
+          if (!this.ecs.hasComponent(unitId, COMP.UNIT)) continue;
+
+          const unitPos = this.ecs.getComponent(unitId, COMP.POSITION);
+          const faction = this.ecs.getComponent(unitId, COMP.FACTION);
+          if (!unitPos || !faction || field.amount <= 0) continue;
+          if (Math.hypot(unitPos.x - fieldPos.x, unitPos.y - fieldPos.y) > radius) continue;
+
+          const resources = this.factionResources[faction.id];
+          if (!resources) continue;
+
+          field.amount -= 1;
+          resources[CREDITS_KEY] = (resources[CREDITS_KEY] || 0) + 1;
+        }
+      }
+    }
   }
 
   _updateEdgeScroll(dt) {
@@ -1086,7 +1100,6 @@ export class GameEngine {
     const hp      = this.ecs.getComponent(id, COMP.HEALTH);
     const faction = this.ecs.getComponent(id, COMP.FACTION);
     const prod    = this.ecs.getComponent(id, COMP.PRODUCTION);
-    const harv    = this.ecs.getComponent(id, COMP.HARVESTER);
 
     // For buildings: collect trainable unit defs
     let trainableUnits = [];
@@ -1107,7 +1120,6 @@ export class GameEngine {
       unit,
       building:   bld,
       production: prod,
-      harvester:  harv,
       trainableUnits,
       prodProgress: bld ? this.production?.getProgress(id) : 0,
       count:      this.selectedEntities.size,

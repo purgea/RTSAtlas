@@ -1,4 +1,4 @@
-// ResourceSystem removed — replaced by HarvesterAI
+// ResourceSystem removed. Resource nodes are now handled by GameEngine.
 
 /**
  * ResourceSystem — handles resource production from buildings (farms, mines, etc.)

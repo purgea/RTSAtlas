@@ -52,7 +52,6 @@ export const TERRAIN_COST = Object.freeze({
 export const UNIT_ROLE = Object.freeze({
   INFANTRY:  'infantry',   // foot soldiers — soldier, archer, grenadier, priest
   VEHICLE:   'vehicle',    // tracked/wheeled — scout, knight, siege
-  HARVESTER: 'harvester',  // resource collector — worker, harvester
   SPECIAL:   'special',    // merchant, unique units
 });
 
@@ -60,9 +59,8 @@ export const UNIT_ROLE = Object.freeze({
 export function categoryToRole(cat) {
   if (!cat) return UNIT_ROLE.INFANTRY;
   const c = cat.toLowerCase();
-  if (c === 'worker' || c === 'harvester' || c === 'merchant') return UNIT_ROLE.HARVESTER;
   if (c === 'knight' || c === 'siege' || c === 'scout') return UNIT_ROLE.VEHICLE;
-  if (c === 'priest' || c === 'special') return UNIT_ROLE.SPECIAL;
+  if (c === 'merchant' || c === 'priest' || c === 'special') return UNIT_ROLE.SPECIAL;
   return UNIT_ROLE.INFANTRY;
 }
 
@@ -73,9 +71,6 @@ export const CREDITS_KEY = 'gold';
 export const POWER_KEY = 'power';
 
 // Harvester config — reads from unit with category 'worker' or 'harvester'
-export const HARVESTER_CARRY    = 300;   // max ore per trip (overridden by unit ability)
-export const HARVESTER_RATE     = 0.8;   // ore/tick while on field
-export const HARVESTER_DURATION = 60;    // ticks spent on ore field per trip
 
 // Production config
 export const POWER_DEFICIT_PENALTY = 0.5; // 50% production speed when under-powered
@@ -106,7 +101,6 @@ export const COMP = Object.freeze({
   SELECTABLE:   'Selectable',
   RENDER:       'Render',
   AI:           'AI',
-  HARVESTER:    'Harvester',
   ORE_FIELD:    'OreField',
   PRODUCTION:   'Production',
   PROJECTILE:   'Projectile',
@@ -121,6 +115,3 @@ export const TICKS_PER_SECOND = 20;   // fixed logic rate
 export const SECONDS_PER_YEAR = 300;  // in-game year length
 
 // Ore field regen rate (ore per second)
-export const ORE_REGEN_RATE = 0.2;
-
-
