@@ -320,14 +320,66 @@ export class RenderSystem {
     for (const marker of markers) {
       const pct = Math.min(1, marker.age / marker.duration);
       const alpha = 1 - pct;
-      const size = 18 + pct * 18;
-      const color = marker.type === 'attack' ? '#ff2d2d' : '#35ff6a';
 
-      g.circle(marker.x, marker.y, size * 0.42).fill({ color, alpha: 0.18 * alpha }).stroke({ color, alpha, width: 2.5 / this.camera.zoom });
-      g.moveTo(marker.x - size * 0.26, marker.y).lineTo(marker.x + size * 0.26, marker.y)
-        .moveTo(marker.x, marker.y - size * 0.26).lineTo(marker.x, marker.y + size * 0.26)
-        .stroke({ color, alpha, width: 2 / this.camera.zoom });
+      if (marker.type === 'attack') {
+        this._drawAttackMarker(g, marker.x, marker.y, pct, alpha);
+      } else {
+        this._drawMoveMarker(g, marker.x, marker.y, pct, alpha);
+      }
     }
+  }
+
+  _drawMoveMarker(g, x, y, pct, alpha) {
+    const bob = Math.sin(pct * Math.PI) * 8;
+    const size = 18 + pct * 5;
+    const top = y - 30 + bob;
+    const color = '#35ff6a';
+    const width = Math.max(1.5, 2 / this.camera.zoom);
+
+    g.circle(x, y, 11 + pct * 8)
+      .stroke({ color, alpha: 0.45 * alpha, width: 1.5 / this.camera.zoom });
+    g.moveTo(x, top)
+      .lineTo(x, top + size)
+      .stroke({ color, alpha, width: Math.max(3, 4 / this.camera.zoom) });
+    g.poly([
+      x, top + size + 9,
+      x - size * 0.45, top + size - 3,
+      x + size * 0.45, top + size - 3,
+    ]).fill({ color, alpha }).stroke({ color: '#b7ffd0', alpha: 0.65 * alpha, width });
+  }
+
+  _drawAttackMarker(g, x, y, pct, alpha) {
+    const color = '#ff2d2d';
+    const flash = 0.85 + Math.sin(pct * Math.PI) * 0.25;
+    const size = 28 * flash;
+    const width = Math.max(1.5, 2 / this.camera.zoom);
+    const angle = -Math.PI / 4;
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    const px = -uy;
+    const py = ux;
+    const tipX = x + ux * size * 0.65;
+    const tipY = y + uy * size * 0.65;
+    const baseX = x - ux * size * 0.18;
+    const baseY = y - uy * size * 0.18;
+    const pommelX = x - ux * size * 0.58;
+    const pommelY = y - uy * size * 0.58;
+
+    g.circle(x, y, 16 + pct * 9)
+      .stroke({ color, alpha: 0.35 * alpha, width: 1.5 / this.camera.zoom });
+    g.poly([
+      tipX, tipY,
+      baseX + px * size * 0.10, baseY + py * size * 0.10,
+      baseX - px * size * 0.10, baseY - py * size * 0.10,
+    ]).fill({ color: '#f4f4f4', alpha }).stroke({ color, alpha, width });
+    g.moveTo(baseX + px * size * 0.28, baseY + py * size * 0.28)
+      .lineTo(baseX - px * size * 0.28, baseY - py * size * 0.28)
+      .stroke({ color, alpha, width: Math.max(2, 3 / this.camera.zoom) });
+    g.moveTo(baseX, baseY)
+      .lineTo(pommelX, pommelY)
+      .stroke({ color: '#7a1818', alpha, width: Math.max(3, 4 / this.camera.zoom) });
+    g.circle(pommelX, pommelY, Math.max(2, size * 0.07))
+      .fill({ color, alpha });
   }
 
   _drawProjectiles() {
