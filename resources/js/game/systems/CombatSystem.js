@@ -8,17 +8,20 @@ import { COMP, TILE_SIZE } from '../constants.js';
  * passed in as the `enemies` constructor parameter:
  *   enemies.get(factionId) → Set<factionId>
  *
- * Auto-acquire: units auto-target nearest enemy in sight range.
+ * Auto-acquire: non-player units auto-target nearest enemy in sight range.
+ * Player units attack only when explicitly ordered.
  * Attack: triggers ProjectileSystem.spawn() for visuals; damage applied immediately.
  * AOE: artillery units deal splash damage within blast radius.
  */
 export class CombatSystem {
-  constructor(ecs, spatial, projectileSystem, particleSystem, enemies) {
+  constructor(ecs, spatial, projectileSystem, particleSystem, enemies, map = null, pathfinding = null) {
     this.ecs              = ecs;
     this.spatial          = spatial;
     this.projectiles      = projectileSystem;
     this.particles        = particleSystem;
     this.enemies          = enemies; // Map<fId, Set<fId>>
+    this.map              = map;
+    this.pathfinding      = pathfinding;
     this._pendingDestroy  = [];
   }
 
@@ -30,6 +33,7 @@ export class CombatSystem {
       const combat  = ecs.getComponent(id, COMP.COMBAT);
       const pos     = ecs.getComponent(id, COMP.POSITION);
       const faction = ecs.getComponent(id, COMP.FACTION);
+      const order   = ecs.getComponent(id, COMP.ORDER);
 
       // Cool down attack timer
       if (combat.attackCooldown > 0) {
@@ -37,8 +41,19 @@ export class CombatSystem {
         if (combat.attackCooldown < 0) combat.attackCooldown = 0;
       }
 
-      // Auto-acquire nearest enemy if no current target or target dead/gone
+      if (order?.type === 'attack' && (!combat.targetId || combat.targetId !== order.targetId)) {
+        combat.targetId = order.targetId;
+      }
+
+      if (combat.targetId && !this._isValidEnemyTarget(id, combat.targetId, faction.id)) {
+        combat.targetId = null;
+        if (order?.type === 'attack') Object.assign(order, { type: null, targetId: null, approachTile: null });
+        continue;
+      }
+
+      // Auto-acquire nearest enemy for AI/non-player units only.
       if (!combat.targetId || !ecs.exists(combat.targetId)) {
+        if (faction.isPlayer) continue;
         const sightPx = (combat.range ?? 5) * TILE_SIZE * 1.5;
         combat.targetId = this._findTarget(id, pos, faction.id, sightPx);
       }
@@ -50,20 +65,26 @@ export class CombatSystem {
 
       const dist      = this._distanceToTarget(id, combat.targetId, pos, targetPos);
       const rangePx   = (combat.range ?? 5) * TILE_SIZE;
+      const hasExplicitAttack = order?.type === 'attack' && order.targetId === combat.targetId;
       const sightDropPx = rangePx * 2.5;
 
-      // Drop target if too far
-      if (dist > sightDropPx) { combat.targetId = null; continue; }
+      // Drop auto-acquired targets if too far. Explicit player attacks remain locked.
+      if (!hasExplicitAttack && dist > sightDropPx) { combat.targetId = null; continue; }
 
       // Move into range if not there yet (only if unit has movement)
       if (dist > rangePx) {
         const mov = ecs.getComponent(id, COMP.MOVEMENT);
         if (mov && mov.state !== 'moving') {
-          mov.pendingTarget = {
-            x: Math.floor(targetPos.x / TILE_SIZE),
-            y: Math.floor(targetPos.y / TILE_SIZE),
-          };
-          mov.state = 'moving';
+          const tile = this._findAttackTile(id, combat.targetId, combat);
+          if (tile) {
+            if (hasExplicitAttack) order.approachTile = tile;
+            if (this.pathfinding) {
+              this.pathfinding.requestImmediate(id, tile.x, tile.y);
+            } else {
+              mov.pendingTarget = tile;
+              mov.state = 'moving';
+            }
+          }
         }
         continue;
       }
@@ -134,6 +155,63 @@ export class CombatSystem {
     }
   }
 
+  _isValidEnemyTarget(attackerId, targetId, myFactionId) {
+    const { ecs } = this;
+    if (!ecs.exists(targetId)) return false;
+    const hp = ecs.getComponent(targetId, COMP.HEALTH);
+    if (!hp || hp.hp <= 0) return false;
+    const targetFaction = ecs.getComponent(targetId, COMP.FACTION);
+    if (!targetFaction) return false;
+    const myEnemies = this.enemies?.get(myFactionId);
+    if (myEnemies) return myEnemies.has(targetFaction.id);
+    return targetFaction.id !== myFactionId;
+  }
+
+  _findAttackTile(attackerId, targetId, combat) {
+    const { ecs, map, pathfinding } = this;
+    if (!map || !pathfinding) return null;
+
+    const attackerPos = ecs.getComponent(attackerId, COMP.POSITION);
+    const targetPos = ecs.getComponent(targetId, COMP.POSITION);
+    if (!attackerPos || !targetPos) return null;
+
+    const sx = Math.floor(attackerPos.x / TILE_SIZE);
+    const sy = Math.floor(attackerPos.y / TILE_SIZE);
+    const tx = Math.floor(targetPos.x / TILE_SIZE);
+    const ty = Math.floor(targetPos.y / TILE_SIZE);
+    const range = Math.max(1, Math.floor(combat.range ?? 1));
+    const searchRadius = Math.max(range + 4, 8);
+    const candidates = [];
+
+    for (let y = ty - searchRadius; y <= ty + searchRadius; y++) {
+      for (let x = tx - searchRadius; x <= tx + searchRadius; x++) {
+        if (!map.isPassable(x, y)) continue;
+        const center = { x: (x + 0.5) * TILE_SIZE, y: (y + 0.5) * TILE_SIZE };
+        const targetDistance = this._distanceToTarget(attackerId, targetId, center, targetPos) / TILE_SIZE;
+        candidates.push({
+          x,
+          y,
+          targetDistance,
+          attackerDistance: Math.hypot(x - sx, y - sy),
+          inRange: targetDistance <= range,
+        });
+      }
+    }
+
+    candidates.sort((a, b) => {
+      if (a.inRange !== b.inRange) return a.inRange ? -1 : 1;
+      if (a.inRange) return a.attackerDistance - b.attackerDistance;
+      return a.targetDistance - b.targetDistance || a.attackerDistance - b.attackerDistance;
+    });
+
+    for (const cand of candidates.slice(0, 48)) {
+      const path = pathfinding.astar.find(sx, sy, cand.x, cand.y, 4000);
+      if (path) return { x: cand.x, y: cand.y };
+    }
+
+    return null;
+  }
+
   _applyAOE(attackerId, center, combat) {
     const { ecs, spatial } = this;
     const radius   = (combat.aoeRadius ?? 2) * TILE_SIZE;
@@ -179,6 +257,19 @@ export class CombatSystem {
   /** Force a specific target (player-commanded attack) */
   attackTarget(attackerId, targetId) {
     const combat = this.ecs.getComponent(attackerId, COMP.COMBAT);
-    if (combat) combat.targetId = targetId;
+    const order = this.ecs.getComponent(attackerId, COMP.ORDER);
+    if (combat) {
+      combat.targetId = targetId;
+      combat.attackCooldown = Math.min(combat.attackCooldown ?? 0, 0.15);
+    }
+    if (order) {
+      order.type = 'attack';
+      order.targetId = targetId;
+      order.approachTile = this._findAttackTile(attackerId, targetId, combat ?? {});
+    }
+
+    if (order?.approachTile) {
+      this.pathfinding?.requestImmediate(attackerId, order.approachTile.x, order.approachTile.y);
+    }
   }
 }

@@ -338,10 +338,16 @@ export class RenderSystem {
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.strokeStyle = '#35ff6a';
-      ctx.fillStyle = 'rgba(53,255,106,0.18)';
       ctx.lineWidth = Math.max(2, 2.5 * camera.zoom);
 
+      if (marker.type === 'attack') {
+        this._drawAttackMarker(sc.x, sc.y, size);
+        ctx.restore();
+        continue;
+      }
+
+      ctx.strokeStyle = '#35ff6a';
+      ctx.fillStyle = 'rgba(53,255,106,0.18)';
       ctx.beginPath();
       ctx.arc(sc.x, sc.y, size * 0.42, 0, Math.PI * 2);
       ctx.fill();
@@ -367,6 +373,69 @@ export class RenderSystem {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  _drawAttackMarker(x, y, size) {
+    const { ctx } = this;
+    const red = '#ff2d2d';
+
+    ctx.strokeStyle = red;
+    ctx.fillStyle = 'rgba(255,45,45,0.18)';
+
+    ctx.beginPath();
+    ctx.arc(x, y, size * 0.46, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    this._drawSword(ctx, x, y, size, -Math.PI / 4);
+    this._drawSword(ctx, x, y, size, Math.PI / 4);
+
+    ctx.strokeStyle = 'rgba(255,45,45,0.55)';
+    ctx.beginPath();
+    ctx.arc(x, y, size * 0.66, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  _drawSword(ctx, x, y, size, rotation) {
+    const bladeLength = size * 0.72;
+    const handleLength = size * 0.34;
+    const guard = size * 0.18;
+    const ux = Math.cos(rotation);
+    const uy = Math.sin(rotation);
+    const px = -uy;
+    const py = ux;
+    const tipX = x + ux * bladeLength * 0.5;
+    const tipY = y + uy * bladeLength * 0.5;
+    const baseX = x - ux * bladeLength * 0.18;
+    const baseY = y - uy * bladeLength * 0.18;
+    const pommelX = x - ux * handleLength;
+    const pommelY = y - uy * handleLength;
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#ff2d2d';
+    ctx.fillStyle = '#ff2d2d';
+
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(baseX + px * guard * 0.24, baseY + py * guard * 0.24);
+    ctx.lineTo(baseX - px * guard * 0.24, baseY - py * guard * 0.24);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(baseX + px * guard, baseY + py * guard);
+    ctx.lineTo(baseX - px * guard, baseY - py * guard);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(baseX, baseY);
+    ctx.lineTo(pommelX, pommelY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(pommelX, pommelY, Math.max(2, size * 0.055), 0, Math.PI * 2);
+    ctx.fill();
   }
 
   _drawHoverTile(tile) {

@@ -183,7 +183,7 @@ export class GameEngine {
     this.projectiles = new ProjectileSystem(this.ecs);
     this.particles   = new ParticleSystem();
     this.pathfinding = new PathfindingSystem(this.ecs, this.map);
-    this.combat      = new CombatSystem(this.ecs, this.spatial, this.projectiles, this.particles, this.factionEnemies);
+    this.combat      = new CombatSystem(this.ecs, this.spatial, this.projectiles, this.particles, this.factionEnemies, this.map, this.pathfinding);
     this.power       = new PowerSystem(this.ecs, this.factionPower, this.config);
     this.production  = new ProductionSystem(this.ecs, this.factionResources, this.factionPower, this.config);
     this.harvesterAI = new HarvesterAI(this.ecs, this.spatial, this.factionResources, this.config);
@@ -666,22 +666,18 @@ export class GameEngine {
     const tile = this.camera.screenToTile(x, y);
 
     if (this.selectedEntities.size === 0) return;
-    this._addMoveMarker(tile.x, tile.y);
 
-    // Check for target entity at cursor
-    const target = this._entityAt(wc.x, wc.y);
+    // Check for target entity at the clicked tile first. This makes attack
+    // commands deterministic when the cursor is over a tile occupied by a unit.
+    const target = this._enemyEntityOnTile(tile.x, tile.y) ?? this._entityAt(wc.x, wc.y);
 
     if (target) {
       const tFaction = this.ecs.getComponent(target, COMP.FACTION);
       if (tFaction && this.factionEnemies.get(this.playerFactionId)?.has(tFaction.id)) {
-        // Attack enemy
-        const moveTile = this.ecs.hasComponent(target, COMP.BUILDING)
-          ? this._findNearestPassableTile(tile.x, tile.y, 6)
-          : tile;
+        this._addMoveMarker(tile.x, tile.y, 'attack');
         for (const id of this.selectedEntities) {
           if (!this.ecs.hasComponent(id, COMP.UNIT)) continue;
           this.combat.attackTarget(id, target);
-          if (moveTile) this.pathfinding.requestImmediate(id, moveTile.x, moveTile.y);
         }
         return;
       }
@@ -693,6 +689,7 @@ export class GameEngine {
     }
 
     // Move command (C&C: units spread out around the target tile)
+    this._addMoveMarker(tile.x, tile.y, 'move');
     const units = [...this.selectedEntities].filter(id => this.ecs.hasComponent(id, COMP.UNIT));
     const spread = Math.ceil(Math.sqrt(units.length));
     units.forEach((id, idx) => {
@@ -700,13 +697,18 @@ export class GameEngine {
       const oy = Math.floor(idx / spread) - Math.floor(spread / 2);
       // Player commands always immediate (synchronous pathfind)
       this.pathfinding.requestImmediate(id, tile.x + ox, tile.y + oy);
+      const combat = this.ecs.getComponent(id, COMP.COMBAT);
+      const order = this.ecs.getComponent(id, COMP.ORDER);
+      if (combat) combat.targetId = null;
+      if (order) Object.assign(order, { type: 'move', targetId: null, targetTile: { x: tile.x + ox, y: tile.y + oy } });
     });
   }
 
-  _addMoveMarker(tx, ty) {
+  _addMoveMarker(tx, ty, type = 'move') {
     this._moveMarkers.push({
       x: (tx + 0.5) * TILE_SIZE,
       y: (ty + 0.5) * TILE_SIZE,
+      type,
       age: 0,
       duration: 0.55,
     });
@@ -837,6 +839,45 @@ export class GameEngine {
       if (d < bestDist) { bestDist = d; best = id; }
     }
     return best;
+  }
+
+  _enemyEntityOnTile(tx, ty) {
+    if (!this.map?.isInBounds(tx, ty)) return null;
+
+    const buildingId = this.map.getBuilding?.(tx, ty);
+    if (buildingId != null && buildingId !== -1 && this.ecs.exists(buildingId)) {
+      return this._isEnemyEntity(buildingId) ? buildingId : null;
+    }
+
+    const minX = tx * TILE_SIZE;
+    const minY = ty * TILE_SIZE;
+    const maxX = minX + TILE_SIZE;
+    const maxY = minY + TILE_SIZE;
+    const nearby = this.spatial.queryRect(minX, minY, maxX, maxY);
+
+    let best = null;
+    let bestDist = Infinity;
+    const cx = minX + TILE_SIZE * 0.5;
+    const cy = minY + TILE_SIZE * 0.5;
+
+    for (const id of nearby) {
+      if (!this.ecs.hasComponent(id, COMP.UNIT)) continue;
+      if (!this._isEnemyEntity(id)) continue;
+      const pos = this.ecs.getComponent(id, COMP.POSITION);
+      if (!pos) continue;
+      const ux = Math.floor(pos.x / TILE_SIZE);
+      const uy = Math.floor(pos.y / TILE_SIZE);
+      if (ux !== tx || uy !== ty) continue;
+      const d = Math.hypot(pos.x - cx, pos.y - cy);
+      if (d < bestDist) { bestDist = d; best = id; }
+    }
+
+    return best;
+  }
+
+  _isEnemyEntity(id) {
+    const faction = this.ecs.getComponent(id, COMP.FACTION);
+    return !!faction && this.factionEnemies.get(this.playerFactionId)?.has(faction.id);
   }
 
   _placeBuilding(tx, ty) {
