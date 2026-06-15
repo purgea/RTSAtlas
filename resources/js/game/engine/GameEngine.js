@@ -581,20 +581,31 @@ export class GameEngine {
 
     canvas.addEventListener('mousedown',   e => this._onMouseDown(e));
     canvas.addEventListener('mousemove',   e => this._onMouseMove(e));
-    canvas.addEventListener('mouseup',     e => this._onMouseUp(e));
     canvas.addEventListener('wheel',       e => this._onWheel(e), { passive: false });
     canvas.addEventListener('contextmenu', e => { e.preventDefault(); this._onRightClick(e); });
 
     window.addEventListener('mousemove', e => {
       this._screenMouse = { x: e.clientX, y: e.clientY, active: true };
     });
+    window.addEventListener('mouseup', e => this._onMouseUp(e));
     window.addEventListener('keydown', e => { this._keys.add(e.key); this._onKeyDown(e); });
     window.addEventListener('keyup',   e => this._keys.delete(e.key));
   }
 
-  _xy(e) {
+  _xy(e, clampToCanvas = false) {
     const r = this.canvas.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    let x = e.clientX - r.left;
+    let y = e.clientY - r.top;
+    if (clampToCanvas) {
+      x = Math.max(0, Math.min(x, r.width));
+      y = Math.max(0, Math.min(y, r.height));
+    }
+    return { x, y };
+  }
+
+  _eventIsInsideCanvas(e) {
+    const r = this.canvas.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
   }
 
   _onMouseDown(e) {
@@ -640,11 +651,17 @@ export class GameEngine {
   }
 
   _onMouseUp(e) {
-    const { x, y } = this._xy(e);
-    if (e.button === 0) {
+    if (e.button === 0 && this._dragStart) {
+      const { x, y } = this._xy(e, true);
       if (this._selectionRect) {
+        this._selectionRect = {
+          x1: Math.min(x, this._dragStart.x),
+          y1: Math.min(y, this._dragStart.y),
+          x2: Math.max(x, this._dragStart.x),
+          y2: Math.max(y, this._dragStart.y),
+        };
         this._applySelectionRect(this._selectionRect);
-      } else {
+      } else if (this._eventIsInsideCanvas(e)) {
         this._handleLeftClick(x, y);
       }
       this._selectionRect = null;
@@ -669,7 +686,7 @@ export class GameEngine {
 
     // Check for target entity at the clicked tile first. This makes attack
     // commands deterministic when the cursor is over a tile occupied by a unit.
-    const target = this._enemyEntityOnTile(tile.x, tile.y) ?? this._entityAt(wc.x, wc.y);
+    const target = this._enemyEntityAt(wc.x, wc.y);
 
     if (target) {
       const tFaction = this.ecs.getComponent(target, COMP.FACTION);
@@ -767,6 +784,12 @@ export class GameEngine {
   }
 
   _onKeyDown(e) {
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      this._selectAllPlayerUnits();
+      return;
+    }
+
     // Escape — deselect / cancel build
     if (e.key === 'Escape') {
       this.selectedEntities.clear();
@@ -806,6 +829,20 @@ export class GameEngine {
     this.camera.clamp(this.map.width, this.map.height);
   }
 
+  _selectAllPlayerUnits() {
+    this.selectedEntities.clear();
+    for (const id of this.ecs.query(COMP.UNIT, COMP.FACTION)) {
+      const faction = this.ecs.getComponent(id, COMP.FACTION);
+      if (faction?.isPlayer) this.selectedEntities.add(id);
+    }
+
+    if (this.selectedEntities.size > 0) {
+      this.ecs.emit('select', [...this.selectedEntities]);
+    } else {
+      this.ecs.emit('deselect');
+    }
+  }
+
   _handleLeftClick(sx, sy) {
     if (this.buildMode) {
       const tile = this.camera.screenToTile(sx, sy);
@@ -839,6 +876,9 @@ export class GameEngine {
       const f = this.ecs.getComponent(id, COMP.FACTION);
       if (!f || !f.isPlayer) continue;
       if (this.ecs.hasComponent(id, COMP.UNIT)) {
+        const pos = this.ecs.getComponent(id, COMP.POSITION);
+        if (!pos) continue;
+        if (pos.x < wMin.x || pos.x > wMax.x || pos.y < wMin.y || pos.y > wMax.y) continue;
         this.selectedEntities.add(id);
       }
     }
@@ -855,51 +895,28 @@ export class GameEngine {
       }
     }
 
-    const nearby = this.spatial.queryRadius(wx, wy, TILE_SIZE * 1.4);
+    const nearby = this.spatial.queryRadius(wx, wy, TILE_SIZE * 0.45);
     let best = null, bestDist = Infinity;
     for (const id of nearby) {
       const pos = this.ecs.getComponent(id, COMP.POSITION);
       if (!pos) continue;
-      // Ignore ore fields
-      if (this.ecs.hasComponent(id, COMP.ORE_FIELD)) continue;
+      if (!this.ecs.hasComponent(id, COMP.UNIT)) continue;
       const d = Math.hypot(pos.x - wx, pos.y - wy);
+      if (d > this._unitHitRadius(id)) continue;
       if (d < bestDist) { bestDist = d; best = id; }
     }
     return best;
   }
 
-  _enemyEntityOnTile(tx, ty) {
-    if (!this.map?.isInBounds(tx, ty)) return null;
+  _unitHitRadius(id) {
+    const unit = this.ecs.getComponent(id, COMP.UNIT);
+    if (!unit) return 0;
+    return TILE_SIZE * 0.42;
+  }
 
-    const buildingId = this.map.getBuilding?.(tx, ty);
-    if (buildingId != null && buildingId !== -1 && this.ecs.exists(buildingId)) {
-      return this._isEnemyEntity(buildingId) ? buildingId : null;
-    }
-
-    const minX = tx * TILE_SIZE;
-    const minY = ty * TILE_SIZE;
-    const maxX = minX + TILE_SIZE;
-    const maxY = minY + TILE_SIZE;
-    const nearby = this.spatial.queryRect(minX, minY, maxX, maxY);
-
-    let best = null;
-    let bestDist = Infinity;
-    const cx = minX + TILE_SIZE * 0.5;
-    const cy = minY + TILE_SIZE * 0.5;
-
-    for (const id of nearby) {
-      if (!this.ecs.hasComponent(id, COMP.UNIT)) continue;
-      if (!this._isEnemyEntity(id)) continue;
-      const pos = this.ecs.getComponent(id, COMP.POSITION);
-      if (!pos) continue;
-      const ux = Math.floor(pos.x / TILE_SIZE);
-      const uy = Math.floor(pos.y / TILE_SIZE);
-      if (ux !== tx || uy !== ty) continue;
-      const d = Math.hypot(pos.x - cx, pos.y - cy);
-      if (d < bestDist) { bestDist = d; best = id; }
-    }
-
-    return best;
+  _enemyEntityAt(wx, wy) {
+    const target = this._entityAt(wx, wy);
+    return target != null && this._isEnemyEntity(target) ? target : null;
   }
 
   _isEnemyEntity(id) {
