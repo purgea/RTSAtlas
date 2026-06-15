@@ -371,7 +371,7 @@ export class GameEngine {
       armor:         def.armor         || 0,
       range:         def.ranged_attack ? (def.range || 5) : 1,
       ranged:        !!def.ranged_attack,
-      attackRate:    1.0,
+      attackRate:    Math.max(0.1, def.attackRate ?? def.attack_rate ?? 1.0),
       attackCooldown: 0,
       targetId:      null,
       projectileType: role === UNIT_ROLE.VEHICLE ? 'shell' : 'bullet',

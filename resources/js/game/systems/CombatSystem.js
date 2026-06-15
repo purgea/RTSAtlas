@@ -34,6 +34,9 @@ export class CombatSystem {
       const pos     = ecs.getComponent(id, COMP.POSITION);
       const faction = ecs.getComponent(id, COMP.FACTION);
       const order   = ecs.getComponent(id, COMP.ORDER);
+      const attackRate = Math.max(0.1, combat.attackRate ?? 1);
+      combat.attackRate = attackRate;
+      combat.attackCooldown = Math.max(0, combat.attackCooldown ?? 0);
 
       // Cool down attack timer
       if (combat.attackCooldown > 0) {
@@ -92,7 +95,7 @@ export class CombatSystem {
       // Attack
       if (combat.attackCooldown <= 0) {
         this._attack(id, combat.targetId, combat, pos, targetPos);
-        combat.attackCooldown = 1 / (combat.attackRate ?? 1);
+        combat.attackCooldown = 1 / attackRate;
       }
     }
 
@@ -260,7 +263,8 @@ export class CombatSystem {
     const order = this.ecs.getComponent(attackerId, COMP.ORDER);
     if (combat) {
       combat.targetId = targetId;
-      combat.attackCooldown = Math.min(combat.attackCooldown ?? 0, 0.15);
+      combat.attackRate = Math.max(0.1, combat.attackRate ?? 1);
+      combat.attackCooldown = Math.max(0, combat.attackCooldown ?? 0);
     }
     if (order) {
       order.type = 'attack';
