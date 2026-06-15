@@ -14,11 +14,30 @@ class GameController extends Controller
         $data = $request->validate([
             'name'                 => 'required|string|max:120',
             'seed'                 => 'nullable|integer',
+            'map_config_id'        => 'nullable|exists:map_configs,id',
             'map_width'            => 'integer|min:64|max:256',
             'map_height'           => 'integer|min:64|max:256',
             'procedural_settings'  => 'nullable|array',
             'victory_conditions'   => 'nullable|array',
         ]);
+
+        if (!empty($data['map_config_id'])) {
+            $map = $project->mapConfigs()->whereKey($data['map_config_id'])->firstOrFail();
+        } else {
+            $map = $project->mapConfigs()->where('is_default', true)->first()
+                ?? $project->mapConfigs()->oldest('id')->first();
+        }
+
+        if ($map) {
+            $data['map_config_id'] = $map->id;
+            $data['map_width'] = $map->width;
+            $data['map_height'] = $map->height;
+            $data['procedural_settings'] = array_merge(
+                $map->procedural_settings ?? [],
+                ['maxPlayers' => $map->max_players],
+                $data['procedural_settings'] ?? [],
+            );
+        }
 
         $data['seed']   = $data['seed'] ?? random_int(1, PHP_INT_MAX);
         $data['status'] = 'active';
@@ -31,7 +50,8 @@ class GameController extends Controller
     public function play(GameSession $session)
     {
         $session->load('project.factions', 'project.unitConfigs', 'project.buildingConfigs',
-                        'project.techConfigs', 'project.eventConfigs', 'project.resourceConfigs');
+                        'project.techConfigs', 'project.eventConfigs', 'project.resourceConfigs',
+                        'project.mapConfigs', 'mapConfig');
 
         return Inertia::render('Game/Index', ['session' => $session]);
     }

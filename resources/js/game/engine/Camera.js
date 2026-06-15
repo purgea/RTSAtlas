@@ -12,17 +12,27 @@ export class Camera {
     this.height = canvasHeight;
     this._minZoom = 0.3;
     this._maxZoom = 3.0;
+    this._mapWidthTiles = null;
+    this._mapHeightTiles = null;
   }
 
   resize(w, h) {
     this.width  = w;
     this.height = h;
+    this._enforceMinZoom();
+  }
+
+  setMapBounds(mapWidthTiles, mapHeightTiles) {
+    this._mapWidthTiles = mapWidthTiles;
+    this._mapHeightTiles = mapHeightTiles;
+    this._enforceMinZoom();
   }
 
   // -------------------------------------------------------
   // Clamp within map bounds (call after any pan/zoom)
   // -------------------------------------------------------
   clamp(mapWidthTiles, mapHeightTiles) {
+    this.setMapBounds(mapWidthTiles, mapHeightTiles);
     const wPx = mapWidthTiles  * TILE_SIZE * this.zoom;
     const hPx = mapHeightTiles * TILE_SIZE * this.zoom;
     const maxX = Math.max(0, wPx - this.width);
@@ -48,12 +58,27 @@ export class Camera {
   // Zoom (pivot around screen point sx, sy)
   // -------------------------------------------------------
   zoomAt(delta, sx, sy) {
-    const newZoom = Math.max(this._minZoom, Math.min(this._maxZoom, this.zoom * (1 + delta)));
+    const newZoom = Math.max(this.minZoom, Math.min(this._maxZoom, this.zoom * (1 + delta)));
     const worldX = (sx + this.x) / this.zoom;
     const worldY = (sy + this.y) / this.zoom;
     this.zoom = newZoom;
     this.x = worldX * this.zoom - sx;
     this.y = worldY * this.zoom - sy;
+  }
+
+  get minZoom() {
+    if (!this._mapWidthTiles || !this._mapHeightTiles) return this._minZoom;
+
+    const mapPixelWidth = this._mapWidthTiles * TILE_SIZE;
+    const mapPixelHeight = this._mapHeightTiles * TILE_SIZE;
+    const fitZoom = Math.max(this.width / mapPixelWidth, this.height / mapPixelHeight);
+
+    return Math.min(this._maxZoom, Math.max(this._minZoom, fitZoom));
+  }
+
+  _enforceMinZoom() {
+    const minZoom = this.minZoom;
+    if (this.zoom < minZoom) this.zoom = minZoom;
   }
 
   // -------------------------------------------------------
@@ -114,5 +139,5 @@ export class Camera {
   }
 
   serialize() { return { x: this.x, y: this.y, zoom: this.zoom }; }
-  deserialize(d) { this.x = d.x; this.y = d.y; this.zoom = d.zoom; }
+  deserialize(d) { this.x = d.x; this.y = d.y; this.zoom = Math.max(this.minZoom, d.zoom); }
 }

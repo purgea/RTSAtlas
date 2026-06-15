@@ -29,6 +29,10 @@ Route::post('/projects/{project}/events', [ProjectController::class, 'storeEvent
 Route::patch('/projects/{project}/events/{event}', [ProjectController::class, 'updateEvent'])->name('events.update');
 Route::delete('/projects/{project}/events/{event}', [ProjectController::class, 'destroyEvent'])->name('events.destroy');
 Route::patch('/projects/{project}/resources/{resource}', [ProjectController::class, 'updateResource'])->name('resources.update');
+Route::post('/projects/{project}/maps', [ProjectController::class, 'storeMap'])->name('maps.store');
+Route::patch('/projects/{project}/maps/{map}', [ProjectController::class, 'updateMap'])->name('maps.update');
+Route::delete('/projects/{project}/maps/{map}', [ProjectController::class, 'destroyMap'])->name('maps.destroy');
+Route::get('/maps/{map}/music', [ProjectController::class, 'mapMusic'])->name('maps.music');
 
 // Game runtime
 Route::post('/projects/{project}/sessions', [GameController::class, 'create'])->name('game.create');

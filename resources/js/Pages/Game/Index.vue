@@ -224,6 +224,7 @@ let   notifId      = 0;
 // -------------------------------------------------------
 let engine = null;
 let rafId  = null;
+let mapMusic = null;
 
 onMounted(async () => {
   await nextTick();
@@ -232,8 +233,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopMapMusic();
   engine?.stop();
   window.removeEventListener('resize', onResize);
+  window.removeEventListener('pointerdown', resumeMapMusic);
+  window.removeEventListener('keydown', resumeMapMusic);
   cancelAnimationFrame(rafId);
 });
 
@@ -279,11 +283,13 @@ function initEngine() {
     engine.newGame(props.session.seed, {
       map_width:  props.session.map_width  || 96,
       map_height: props.session.map_height || 96,
+      procedural: props.session.procedural_settings || {},
       starting_resources: cfg.settings?.starting_resources || {},
     });
   }
 
   generating.value = false;
+  startMapMusic();
   engine.start();
   uiLoop();
 }
@@ -342,7 +348,38 @@ function cmdStop()        {
 }
 function cmdHold()         { /* Hold ground — stop and don't pursue */ cmdStop(); }
 function cmdAttackMove()   { notify('Click ground to attack-move'); /* handled by engine right-click */ }
-function goHome()          { engine?.stop(); router.visit('/'); }
+function goHome()          { stopMapMusic(); engine?.stop(); router.visit('/'); }
+
+function mapMusicUrl() {
+  return props.session.map_config?.music_url
+      || props.session.project?.map_configs?.find(m => m.id === props.session.map_config_id)?.music_url
+      || null;
+}
+
+function startMapMusic() {
+  const url = mapMusicUrl();
+  if (!url) return;
+
+  stopMapMusic();
+  mapMusic = new Audio(url);
+  mapMusic.loop = true;
+  mapMusic.volume = 0.45;
+  mapMusic.play().catch(() => {
+    window.addEventListener('pointerdown', resumeMapMusic, { once: true });
+    window.addEventListener('keydown', resumeMapMusic, { once: true });
+  });
+}
+
+function resumeMapMusic() {
+  mapMusic?.play().catch(() => {});
+}
+
+function stopMapMusic() {
+  if (!mapMusic) return;
+  mapMusic.pause();
+  mapMusic.currentTime = 0;
+  mapMusic = null;
+}
 
 function notify(text) {
   const id = ++notifId;

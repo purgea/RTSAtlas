@@ -89,24 +89,44 @@
             <label class="block text-sm text-gray-400 mb-1">Seed (blank = random)</label>
             <input v-model="gameForm.seed" type="number" placeholder="12345678" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-green-500" />
           </div>
-          <div class="grid grid-cols-2 gap-3 mb-6">
-            <div>
-              <label class="block text-sm text-gray-400 mb-1">Map Width</label>
-              <select v-model.number="gameForm.map_width" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
-                <option :value="64">64 (Small)</option>
-                <option :value="96">96 (Medium)</option>
-                <option :value="128">128 (Large)</option>
-                <option :value="192">192 (Huge)</option>
-              </select>
+          <div class="mb-6">
+            <label class="block text-sm text-gray-400 mb-2">Map Preset</label>
+            <div v-if="selectedProjectMaps.length" class="space-y-2 max-h-72 overflow-y-auto">
+              <label
+                v-for="map in selectedProjectMaps"
+                :key="map.id"
+                :class="['block cursor-pointer rounded border p-3 transition', gameForm.map_config_id === map.id ? 'border-green-500 bg-green-950/40' : 'border-gray-700 bg-gray-800 hover:border-gray-500']"
+              >
+                <input v-model.number="gameForm.map_config_id" type="radio" :value="map.id" class="sr-only" />
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="font-semibold text-white">{{ map.name }}</p>
+                    <p class="text-xs text-gray-400 mt-1">{{ map.width }} x {{ map.height }} · {{ map.max_players }} players</p>
+                  </div>
+                  <span v-if="map.is_default" class="text-xs text-green-300 bg-green-900 px-2 py-0.5 rounded">Default</span>
+                </div>
+                <p v-if="map.description" class="text-xs text-gray-500 mt-2">{{ map.description }}</p>
+              </label>
             </div>
-            <div>
-              <label class="block text-sm text-gray-400 mb-1">Map Height</label>
-              <select v-model.number="gameForm.map_height" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
-                <option :value="64">64 (Small)</option>
-                <option :value="96">96 (Medium)</option>
-                <option :value="128">128 (Large)</option>
-                <option :value="192">192 (Huge)</option>
-              </select>
+            <div v-else class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm text-gray-400 mb-1">Map Width</label>
+                <select v-model.number="gameForm.map_width" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                  <option :value="64">64 (Small)</option>
+                  <option :value="96">96 (Medium)</option>
+                  <option :value="128">128 (Large)</option>
+                  <option :value="192">192 (Huge)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm text-gray-400 mb-1">Map Height</label>
+                <select v-model.number="gameForm.map_height" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                  <option :value="64">64 (Small)</option>
+                  <option :value="96">96 (Medium)</option>
+                  <option :value="128">128 (Large)</option>
+                  <option :value="192">192 (Huge)</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="flex gap-3">
@@ -139,7 +159,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 
 const props = defineProps({ projects: { type: Array, default: () => [] } });
@@ -153,7 +173,9 @@ const loadingSessions = ref(false);
 const selectedProject = ref(null);
 
 const form     = reactive({ name: '', description: '' });
-const gameForm = reactive({ name: 'Campaign 1', seed: '', map_width: 128, map_height: 128 });
+const gameForm = reactive({ name: 'Campaign 1', seed: '', map_config_id: null, map_width: 128, map_height: 128 });
+
+const selectedProjectMaps = computed(() => selectedProject.value?.map_configs || []);
 
 function submitNewProject() {
   submitting.value = true;
@@ -171,6 +193,11 @@ function openEditor(project) { router.visit(`/editor/${project.id}`); }
 function startNewGame(project) {
   selectedProject.value = project;
   gameForm.name = `${project.name} - Save 1`;
+  const maps = project.map_configs || [];
+  const map = maps.find(m => m.is_default) || maps[0] || null;
+  gameForm.map_config_id = map?.id ?? null;
+  gameForm.map_width = map?.width ?? project.settings?.map_width ?? 128;
+  gameForm.map_height = map?.height ?? project.settings?.map_height ?? 128;
   showStartGame.value = true;
 }
 

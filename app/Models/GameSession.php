@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class GameSession extends Model
 {
     protected $fillable = [
-        'project_id', 'name', 'seed', 'status', 'tick', 'game_year',
+        'project_id', 'map_config_id', 'name', 'seed', 'status', 'tick', 'game_year',
         'map_width', 'map_height', 'procedural_settings', 'victory_conditions',
         'map_data', 'ecs_state', 'faction_resources',
     ];
@@ -22,5 +22,10 @@ class GameSession extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    public function mapConfig(): BelongsTo
+    {
+        return $this->belongsTo(MapConfig::class);
     }
 }

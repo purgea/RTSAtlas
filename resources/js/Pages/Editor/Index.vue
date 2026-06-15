@@ -69,6 +69,12 @@
         :resources="project.resource_configs"
         @updated="reloadProject"
       />
+      <MapsPanel
+        v-else-if="activeTab === 'maps'"
+        :project="project"
+        :maps="project.map_configs"
+        @updated="reloadProject"
+      />
       <SettingsPanel
         v-else-if="activeTab === 'settings'"
         :project="project"
@@ -87,6 +93,7 @@ import BuildingsPanel from '../../Components/Editor/BuildingsPanel.vue';
 import TechTreePanel  from '../../Components/Editor/TechTreePanel.vue';
 import EventsPanel    from '../../Components/Editor/EventsPanel.vue';
 import ResourcesPanel from '../../Components/Editor/ResourcesPanel.vue';
+import MapsPanel      from '../../Components/Editor/MapsPanel.vue';
 import SettingsPanel  from '../../Components/Editor/SettingsPanel.vue';
 
 const props = defineProps({ project: Object });
@@ -99,9 +106,11 @@ const tabs = [
   { key: 'techs',     label: 'Tech Tree',   icon: '🔬' },
   { key: 'events',    label: 'Events',      icon: '⚡' },
   { key: 'resources', label: 'Resources',   icon: '💰' },
+  { key: 'maps',      label: 'Maps',        icon: '🗺️' },
   { key: 'settings',  label: 'Settings',    icon: '⚙️' },
 ];
 
 function goHome()       { router.visit('/'); }
 function reloadProject(){ router.reload({ preserveScroll: true }); }
 </script>
+

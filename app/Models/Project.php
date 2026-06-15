@@ -44,6 +44,11 @@ class Project extends Model
         return $this->hasMany(ResourceConfig::class);
     }
 
+    public function mapConfigs(): HasMany
+    {
+        return $this->hasMany(MapConfig::class);
+    }
+
     public function gameSessions(): HasMany
     {
         return $this->hasMany(GameSession::class);

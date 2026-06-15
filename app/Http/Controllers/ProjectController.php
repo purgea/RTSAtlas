@@ -9,7 +9,9 @@ use App\Models\BuildingConfig;
 use App\Models\TechConfig;
 use App\Models\EventConfig;
 use App\Models\ResourceConfig;
+use App\Models\MapConfig;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class ProjectController extends Controller
@@ -17,6 +19,7 @@ class ProjectController extends Controller
     public function index()
     {
         $projects = Project::withCount(['factions', 'gameSessions'])
+            ->with('mapConfigs')
             ->orderByDesc('updated_at')
             ->get();
 
@@ -49,6 +52,7 @@ class ProjectController extends Controller
             'techConfigs',
             'eventConfigs',
             'resourceConfigs',
+            'mapConfigs',
         ]);
 
         return Inertia::render('Editor/Index', ['project' => $project]);
@@ -343,6 +347,109 @@ class ProjectController extends Controller
     }
 
     // -------------------------------------------------------
+    // Map preset CRUD
+    // -------------------------------------------------------
+
+    public function storeMap(Request $request, Project $project)
+    {
+        $this->normalizeMapRequest($request);
+        $data = $request->validate($this->mapValidationRules(true));
+        $this->storeMapMusic($request, $data);
+
+        if ($data['is_default'] ?? false) {
+            $project->mapConfigs()->update(['is_default' => false]);
+        }
+
+        return response()->json($project->mapConfigs()->create($data), 201);
+    }
+
+    public function updateMap(Request $request, Project $project, MapConfig $map)
+    {
+        $this->normalizeMapRequest($request);
+        $data = $request->validate($this->mapValidationRules(false));
+        $this->storeMapMusic($request, $data, $map);
+
+        if ($data['is_default'] ?? false) {
+            $project->mapConfigs()->where('id', '!=', $map->id)->update(['is_default' => false]);
+        }
+
+        $map->update($data);
+        return response()->json($map);
+    }
+
+    public function destroyMap(Project $project, MapConfig $map)
+    {
+        $wasDefault = $map->is_default;
+        if ($map->music_path) {
+            Storage::disk('public')->delete($map->music_path);
+        }
+        $map->delete();
+
+        if ($wasDefault) {
+            $next = $project->mapConfigs()->oldest('id')->first();
+            $next?->update(['is_default' => true]);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function mapMusic(Request $request, MapConfig $map)
+    {
+        abort_unless($map->music_path && Storage::disk('public')->exists($map->music_path), 404);
+
+        $disk = Storage::disk('public');
+        $mime = $disk->mimeType($map->music_path) ?: 'audio/mpeg';
+        $size = $disk->size($map->music_path);
+        $start = 0;
+        $end = $size - 1;
+        $status = 200;
+
+        if ($request->headers->has('Range')) {
+            $range = $request->header('Range');
+            if (preg_match('/bytes=(\d*)-(\d*)/', $range, $matches)) {
+                $start = $matches[1] !== '' ? (int) $matches[1] : 0;
+                $end = $matches[2] !== '' ? (int) $matches[2] : $end;
+                $start = max(0, min($start, $size - 1));
+                $end = max($start, min($end, $size - 1));
+                $status = 206;
+            }
+        }
+
+        $length = $end - $start + 1;
+
+        $headers = [
+            'Content-Type' => $mime,
+            'Content-Length' => (string) $length,
+            'Accept-Ranges' => 'bytes',
+        ];
+
+        if ($status === 206) {
+            $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
+        }
+
+        return response()->stream(function () use ($disk, $map, $start, $length) {
+            $stream = $disk->readStream($map->music_path);
+            if ($start > 0) {
+                fseek($stream, $start);
+            }
+
+            $remaining = $length;
+            while ($remaining > 0 && !feof($stream)) {
+                $chunk = fread($stream, min(8192, $remaining));
+                if ($chunk === false) {
+                    break;
+                }
+                echo $chunk;
+                $remaining -= strlen($chunk);
+            }
+
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }, $status, $headers);
+    }
+
+    // -------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------
 
@@ -356,6 +463,74 @@ class ProjectController extends Controller
             'max_players'        => 4,
             'game_speed'         => 1.0,
         ];
+    }
+
+    private function mapValidationRules(bool $creating): array
+    {
+        return [
+            'key'                 => [$creating ? 'required' : 'sometimes', 'string', 'max:60'],
+            'name'                => [$creating ? 'required' : 'sometimes', 'string', 'max:80'],
+            'description'         => 'nullable|string',
+            'width'               => 'integer|min:64|max:256',
+            'height'              => 'integer|min:64|max:256',
+            'max_players'         => 'integer|min:2|max:8',
+            'procedural_settings' => 'nullable|array',
+            'music_file'          => 'nullable|file|mimes:mp3,ogg,wav,m4a,aac,flac|max:20480',
+            'remove_music'        => 'boolean',
+            'is_default'          => 'boolean',
+        ];
+    }
+
+    private function normalizeMapRequest(Request $request): void
+    {
+        $merge = [];
+
+        if (is_string($request->input('procedural_settings'))) {
+            $decoded = json_decode($request->input('procedural_settings'), true);
+            $merge['procedural_settings'] = is_array($decoded) ? $decoded : [];
+        }
+
+        foreach (['is_default', 'remove_music'] as $key) {
+            if ($request->has($key)) {
+                $merge[$key] = filter_var($request->input($key), FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+
+        foreach (['width', 'height', 'max_players'] as $key) {
+            if ($request->has($key)) {
+                $merge[$key] = (int) $request->input($key);
+            }
+        }
+
+        if ($merge) {
+            $request->merge($merge);
+        }
+    }
+
+    private function storeMapMusic(Request $request, array &$data, ?MapConfig $map = null): void
+    {
+        unset($data['music_file']);
+
+        if ($data['remove_music'] ?? false) {
+            if ($map?->music_path) {
+                Storage::disk('public')->delete($map->music_path);
+            }
+            $data['music_path'] = null;
+            $data['music_name'] = null;
+        }
+        unset($data['remove_music']);
+
+        if (!$request->hasFile('music_file')) {
+            return;
+        }
+
+        if ($map?->music_path) {
+            Storage::disk('public')->delete($map->music_path);
+        }
+
+        $file = $request->file('music_file');
+        $data['music_path'] = $file->store("map-music/project-{$request->route('project')->id}", 'public');
+        $data['music_name'] = $file->getClientOriginalName();
     }
 
     private function seedDefaultData(Project $project): void
@@ -393,5 +568,81 @@ class ProjectController extends Controller
             'ai_profile' => ['aggression' => 0.8, 'expansion' => 0.7, 'economy' => 0.5],
             'playable' => false,
         ]);
+
+        $maps = [
+            [
+                'key' => 'balanced_frontier',
+                'name' => 'Balanced Frontier',
+                'description' => 'Moderate terrain with enough open ground, ore, roads, and defensive features.',
+                'width' => 128,
+                'height' => 128,
+                'max_players' => 4,
+                'is_default' => true,
+                'procedural_settings' => [
+                    'scale' => 0.006,
+                    'mScale' => 0.008,
+                    'seaLevel' => 0.38,
+                    'mountainH' => 0.72,
+                    'riverCount' => 5,
+                    'forestThickness' => 2,
+                    'mineCount' => 8,
+                    'villageCount' => 6,
+                    'ruinsCount' => 7,
+                    'campCount' => 5,
+                    'specialCount' => 2,
+                    'maxPlayers' => 4,
+                ],
+            ],
+            [
+                'key' => 'dry_highlands',
+                'name' => 'Dry Highlands',
+                'description' => 'Higher elevation, fewer rivers, more cliffs and concentrated ore fields.',
+                'width' => 128,
+                'height' => 128,
+                'max_players' => 4,
+                'is_default' => false,
+                'procedural_settings' => [
+                    'scale' => 0.007,
+                    'mScale' => 0.006,
+                    'seaLevel' => 0.32,
+                    'mountainH' => 0.66,
+                    'riverCount' => 2,
+                    'forestThickness' => 1,
+                    'mineCount' => 10,
+                    'villageCount' => 4,
+                    'ruinsCount' => 9,
+                    'campCount' => 4,
+                    'specialCount' => 2,
+                    'maxPlayers' => 4,
+                ],
+            ],
+            [
+                'key' => 'wet_lowlands',
+                'name' => 'Wet Lowlands',
+                'description' => 'Lower terrain with more water, rivers, forests, and choke points.',
+                'width' => 96,
+                'height' => 96,
+                'max_players' => 4,
+                'is_default' => false,
+                'procedural_settings' => [
+                    'scale' => 0.005,
+                    'mScale' => 0.010,
+                    'seaLevel' => 0.44,
+                    'mountainH' => 0.78,
+                    'riverCount' => 6,
+                    'forestThickness' => 3,
+                    'mineCount' => 6,
+                    'villageCount' => 7,
+                    'ruinsCount' => 5,
+                    'campCount' => 6,
+                    'specialCount' => 1,
+                    'maxPlayers' => 4,
+                ],
+            ],
+        ];
+
+        foreach ($maps as $map) {
+            $project->mapConfigs()->create($map);
+        }
     }
 }

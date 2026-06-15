@@ -1080,5 +1080,6 @@ export class GameEngine {
     this.canvas.width  = w;
     this.canvas.height = h;
     this.camera.resize(w, h);
+    if (this.map) this.camera.clamp(this.map.width, this.map.height);
   }
 }
