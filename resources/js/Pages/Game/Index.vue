@@ -43,7 +43,7 @@
           <span class="panel-code">ONLINE</span>
         </div>
         <div class="minimap-frame">
-          <canvas ref="minimap" :width="mmW" :height="mmH" class="minimap-canvas"></canvas>
+          <canvas ref="minimap" :width="mmW" :height="mmH" class="minimap-canvas" @click="onMinimapClick"></canvas>
           <div class="scanline"></div>
         </div>
       </section>
@@ -339,6 +339,13 @@ function toggleBuild(key)  {
 function trainUnit(key)   { if (sel.value?.id != null) engine?.enqueueUnit(sel.value.id, key); }
 function dequeueUnit()    { if (sel.value?.id != null) engine?.dequeueUnit(sel.value.id); }
 function sellSelected()   { engine?._sellSelected?.(); }
+function onMinimapClick(e) {
+  if (!engine || !minimap.value) return;
+  const rect = minimap.value.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * mmW;
+  const y = ((e.clientY - rect.top) / rect.height) * mmH;
+  engine.centerCameraFromRadar(x, y, mmW, mmH);
+}
 function cmdStop()        {
   if (!sel.value) return;
   for (const id of engine?.selectedEntities ?? []) {
@@ -642,6 +649,7 @@ function buildingGlyph(b) {
   height: 156px;
   image-rendering: pixelated;
   background: #050806;
+  cursor: pointer;
 }
 
 .scanline {
@@ -653,6 +661,7 @@ function buildingGlyph(b) {
   background: rgba(150, 255, 147, 0.48);
   box-shadow: 0 0 10px rgba(111, 255, 111, 0.56);
   animation: scanline 3.6s linear infinite;
+  pointer-events: none;
 }
 
 @keyframes scanline {

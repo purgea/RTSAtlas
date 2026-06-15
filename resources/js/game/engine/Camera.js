@@ -54,6 +54,11 @@ export class Camera {
     this.y = worldY * TILE_SIZE * this.zoom - this.height / 2;
   }
 
+  centerOn(worldPxX, worldPxY) {
+    this.x = worldPxX * this.zoom - this.width / 2;
+    this.y = worldPxY * this.zoom - this.height / 2;
+  }
+
   // -------------------------------------------------------
   // Zoom (pivot around screen point sx, sy)
   // -------------------------------------------------------

@@ -1056,6 +1056,15 @@ export class GameEngine {
     this.production?.dequeue(buildingId);
   }
 
+  centerCameraFromRadar(x, y, width, height) {
+    if (!this.map || !width || !height) return;
+
+    const tileX = (x / width) * this.map.width;
+    const tileY = (y / height) * this.map.height;
+    this.camera.panTo(tileX, tileY);
+    this.camera.clamp(this.map.width, this.map.height);
+  }
+
   getStats() {
     const credits = (this.factionResources[this.playerFactionId] || {})[CREDITS_KEY] ?? 0;
     const pw      = this.factionPower[this.playerFactionId] || { supply: 0, drain: 0, deficit: false };
