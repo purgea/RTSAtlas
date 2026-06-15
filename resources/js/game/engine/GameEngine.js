@@ -55,7 +55,6 @@ import {
 export class GameEngine {
   constructor(canvas, projectConfig) {
     this.canvas  = canvas;
-    this.ctx     = canvas.getContext('2d');
     this.config  = projectConfig;
 
     this.ecs     = new ECS();
@@ -171,7 +170,7 @@ export class GameEngine {
   }
 
   start()      { this.loop.start(); }
-  stop()       { this.loop.stop();  }
+  stop()       { this.loop.stop(); this.render?.destroy?.(); }
   pause()      { this.loop.pause(); }
   resume()     { this.loop.resume();}
 
@@ -194,7 +193,7 @@ export class GameEngine {
     );
     this.eventSystem = new EventSystem(this.ecs, this.map, this.factionResources, this.config, this.activeEvents);
     this.render = new RenderSystem(
-      this.ctx, this.map, this.camera, this.ecs,
+      this.canvas, this.map, this.camera, this.ecs,
       this.projectiles, this.particles,
     );
     this.systems = [
@@ -1108,6 +1107,7 @@ export class GameEngine {
     this.canvas.width  = w;
     this.canvas.height = h;
     this.camera.resize(w, h);
+    this.render?.resize?.(w, h);
     if (this.map) this.camera.clamp(this.map.width, this.map.height);
   }
 }
