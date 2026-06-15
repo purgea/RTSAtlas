@@ -549,7 +549,6 @@ export class GameEngine {
 
   _tick(dt) {
     this.tick++;
-    this._updateEdgeScroll(dt);
     this._updateMoveMarkers(dt);
 
     // Update projectiles and particles (cosmetic — not in systems[] for ordering control)
@@ -562,6 +561,8 @@ export class GameEngine {
   }
 
   _render(alpha, dt) {
+    this._updateEdgeScroll(dt ?? (1 / 60));
+
     this.render.render(
       alpha, dt ?? (1 / 60),
       this.selectedEntities,
@@ -723,19 +724,46 @@ export class GameEngine {
     if (!this.map || !this.camera) return;
     if (!this._screenMouse.active) return;
 
-    const edge = 20;
+    const edge = 36;
     const speed = 720;
     let dx = 0;
+    let dy = 0;
+
+    const edgeStrength = (distance) => {
+      const t = Math.max(0, Math.min(1, (edge - distance) / edge));
+      return t * t * (3 - 2 * t);
+    };
 
     if (this._screenMouse.x <= edge) {
-      dx = -speed * dt;
+      dx = -edgeStrength(this._screenMouse.x);
     } else if (this._screenMouse.x >= window.innerWidth - edge) {
-      dx = speed * dt;
+      dx = edgeStrength(window.innerWidth - this._screenMouse.x);
     }
 
-    if (dx !== 0) {
-      this.camera.pan(dx, 0);
+    if (this._screenMouse.y <= edge) {
+      dy = -edgeStrength(this._screenMouse.y);
+    } else if (this._screenMouse.y >= window.innerHeight - edge) {
+      dy = edgeStrength(window.innerHeight - this._screenMouse.y);
+    }
+
+    if (dx !== 0 || dy !== 0) {
+      const magnitude = Math.hypot(dx, dy);
+      const scale = magnitude > 1 ? 1 / magnitude : 1;
+      this.camera.pan(dx * scale * speed * dt, dy * scale * speed * dt);
       this.camera.clamp(this.map.width, this.map.height);
+      this._refreshHoverTile();
+    }
+  }
+
+  _refreshHoverTile() {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = this._screenMouse.x - rect.left;
+    const y = this._screenMouse.y - rect.top;
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) return;
+
+    this.hoverTile = this.camera.screenToTile(x, y);
+    if (this.buildMode && this.hoverTile) {
+      this.buildMode.valid = this._canPlaceAt(this.hoverTile.x, this.hoverTile.y, this.buildMode.size ?? 2);
     }
   }
 

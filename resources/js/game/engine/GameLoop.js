@@ -81,6 +81,6 @@ export class GameLoop {
 
     // Interpolation factor (0..1) for smooth rendering
     const alpha = this._accumulator / this.tickMs;
-    this._onRender(alpha);
+    this._onRender(alpha, dt / 1000);
   }
 }
