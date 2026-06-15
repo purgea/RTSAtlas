@@ -189,6 +189,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue';
 import { router } from '@inertiajs/vue3';
+import { Howl, Howler } from 'howler';
 import { GameEngine } from '../../game/engine/GameEngine.js';
 
 const props = defineProps({ session: Object });
@@ -225,6 +226,7 @@ let   notifId      = 0;
 let engine = null;
 let rafId  = null;
 let mapMusic = null;
+let mapMusicId = null;
 
 onMounted(async () => {
   await nextTick();
@@ -368,24 +370,34 @@ function startMapMusic() {
   if (!url) return;
 
   stopMapMusic();
-  mapMusic = new Audio(url);
-  mapMusic.loop = true;
-  mapMusic.volume = 0.45;
-  mapMusic.play().catch(() => {
-    window.addEventListener('pointerdown', resumeMapMusic, { once: true });
-    window.addEventListener('keydown', resumeMapMusic, { once: true });
+
+  mapMusic = new Howl({
+    src: [url],
+    loop: true,
+    volume: 0.45,
+    html5: true,
+    preload: true,
+    onplayerror() {
+      window.addEventListener('pointerdown', resumeMapMusic, { once: true });
+      window.addEventListener('keydown', resumeMapMusic, { once: true });
+      Howler.once('unlock', resumeMapMusic);
+    },
   });
+
+  mapMusicId = mapMusic.play();
 }
 
 function resumeMapMusic() {
-  mapMusic?.play().catch(() => {});
+  if (!mapMusic || mapMusic.playing(mapMusicId)) return;
+  mapMusicId = mapMusic.play();
 }
 
 function stopMapMusic() {
   if (!mapMusic) return;
-  mapMusic.pause();
-  mapMusic.currentTime = 0;
+  mapMusic.stop();
+  mapMusic.unload();
   mapMusic = null;
+  mapMusicId = null;
 }
 
 function notify(text) {
