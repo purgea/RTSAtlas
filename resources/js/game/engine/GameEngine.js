@@ -97,6 +97,14 @@ export class GameEngine {
     this.eventSystem   = null;
     this.render        = null;
     this.activeEvents  = [];
+
+    this.perf = {
+      tickMs: 0,
+      renderMs: 0,
+      lastTickMs: 0,
+      lastRenderMs: 0,
+      systems: {},
+    };
   }
 
   // -------------------------------------------------------
@@ -289,7 +297,7 @@ export class GameEngine {
         return role === UNIT_ROLE.INFANTRY || role === UNIT_ROLE.VEHICLE;
       });
       if (militaryUnitDef) {
-        for (let j = 0; j < 4; j++) {
+        for (let j = 0; j < 50; j++) {
           this._spawnUnit(militaryUnitDef.key, fId, sp.x + 3 + j, sp.y + (conYardDef?.size || 3) + 2, militaryUnitDef);
         }
       }
@@ -526,6 +534,8 @@ export class GameEngine {
   // -------------------------------------------------------
 
   _tick(dt) {
+    const started = performance.now();
+
     this.tick++;
     this._updateMoveMarkers(dt);
     this._updateResourceNodes(dt);
@@ -535,11 +545,25 @@ export class GameEngine {
     this.particles.update(dt);
 
     for (const sys of this.systems) {
+      const sysStarted = performance.now();
       sys.update(dt, this.tick);
+      const sysElapsed = performance.now() - sysStarted;
+      const name = sys.constructor?.name ?? 'System';
+      const current = this.perf.systems[name] ?? { ms: 0, lastMs: 0, maxMs: 0 };
+      current.lastMs = sysElapsed;
+      current.ms = current.ms === 0 ? sysElapsed : current.ms * 0.95 + sysElapsed * 0.05;
+      current.maxMs = Math.max(current.maxMs * 0.995, sysElapsed);
+      this.perf.systems[name] = current;
     }
+
+    const elapsed = performance.now() - started;
+    this.perf.lastTickMs = elapsed;
+    this.perf.tickMs = this.perf.tickMs === 0 ? elapsed : this.perf.tickMs * 0.95 + elapsed * 0.05;
   }
 
   _render(alpha, dt) {
+    const started = performance.now();
+
     this._updateEdgeScroll(dt ?? (1 / 60));
 
     this.render.render(
@@ -550,6 +574,10 @@ export class GameEngine {
       this.buildMode,
       this._moveMarkers,
     );
+
+    const elapsed = performance.now() - started;
+    this.perf.lastRenderMs = elapsed;
+    this.perf.renderMs = this.perf.renderMs === 0 ? elapsed : this.perf.renderMs * 0.95 + elapsed * 0.05;
   }
 
   // -------------------------------------------------------
@@ -1089,6 +1117,19 @@ export class GameEngine {
       credits,
       power:    pw,
       entities: this.ecs.entityCount ?? 0,
+      perf: {
+        tickMs:       Number(this.perf.tickMs.toFixed(2)),
+        renderMs:     Number(this.perf.renderMs.toFixed(2)),
+        lastTickMs:   Number(this.perf.lastTickMs.toFixed(2)),
+        lastRenderMs: Number(this.perf.lastRenderMs.toFixed(2)),
+        systems: Object.fromEntries(
+          Object.entries(this.perf.systems).map(([name, stat]) => [name, {
+            ms:     Number(stat.ms.toFixed(2)),
+            lastMs: Number(stat.lastMs.toFixed(2)),
+            maxMs:  Number(stat.maxMs.toFixed(2)),
+          }]),
+        ),
+      },
     };
   }
 

@@ -34,6 +34,7 @@ export class RenderSystem {
 
     this.layers = {
       terrain: new Graphics(),
+      fog: new Graphics(),
       ore: new Container(),
       buildings: new Container(),
       units: new Container(),
@@ -47,6 +48,7 @@ export class RenderSystem {
 
     this.world.addChild(
       this.layers.terrain,
+      this.layers.fog,
       this.layers.ore,
       this.layers.buildings,
       this.layers.units,
@@ -59,9 +61,14 @@ export class RenderSystem {
     this.overlay.addChild(this.layers.ui);
 
     this._textureCache = new Map();
+    this._unitViews = new Map();
     this._ready = false;
     this._destroyed = false;
     this._pendingSize = null;
+    this._terrainSignature = '';
+    this._terrainRefreshTimer = 0;
+    this._fogSignature = '';
+    this._fogRefreshTimer = 0;
 
     this._readyPromise = this.app.init({
       canvas,
@@ -86,11 +93,14 @@ export class RenderSystem {
   render(alpha, dt, selectedEntities, selectionRect, hoverTile, buildMode, moveMarkers = []) {
     if (!this._ready || this._destroyed) return;
     this._oreAnim += dt * 2.0;
+    this._terrainRefreshTimer += dt;
+    this._fogRefreshTimer += dt;
 
     this.world.position.set(-this.camera.x, -this.camera.y);
     this.world.scale.set(this.camera.zoom);
 
     this._drawTiles();
+    this._drawFog();
     this._drawOreFields();
     this._drawBuildings(selectedEntities);
     this._drawUnits(selectedEntities);
@@ -118,23 +128,56 @@ export class RenderSystem {
   _drawTiles() {
     const g = this.layers.terrain;
     const vis = this.camera.visibleTileRect(this.map.width, this.map.height);
+    const tileCount = (vis.maxX - vis.minX) * (vis.maxY - vis.minY);
+    const detailMode = this.camera.zoom >= 0.65 && tileCount <= 1400 ? 'detail' : 'flat';
+    const signature = `${vis.minX}:${vis.minY}:${vis.maxX}:${vis.maxY}:${detailMode}`;
+    if (signature === this._terrainSignature) return;
+
+    this._terrainSignature = signature;
+    this._terrainRefreshTimer = 0;
     g.clear();
 
     for (let y = vis.minY; y < vis.maxY; y++) {
       for (let x = vis.minX; x < vis.maxX; x++) {
-        const fog = this.map.getFog(x, y);
-        if (fog === 0) continue;
-
         const tile = this.map.getTile(x, y);
         const wx = x * TILE_SIZE;
         const wy = y * TILE_SIZE;
         g.rect(wx, wy, TILE_SIZE + 0.5, TILE_SIZE + 0.5).fill(TERRAIN_COLOR[tile] ?? '#222');
-        this._drawTileDetail(g, tile, x, y, wx, wy, TILE_SIZE);
+        if (detailMode === 'detail') this._drawTileDetail(g, tile, x, y, wx, wy, TILE_SIZE);
+      }
+    }
+  }
 
-        if (fog === 1) {
-          g.rect(wx, wy, TILE_SIZE + 0.5, TILE_SIZE + 0.5).fill({ color: '#000000', alpha: 0.48 });
+  _drawFog() {
+    const g = this.layers.fog;
+    const vis = this.camera.visibleTileRect(this.map.width, this.map.height);
+    const signature = `${vis.minX}:${vis.minY}:${vis.maxX}:${vis.maxY}`;
+    if (signature === this._fogSignature && this._fogRefreshTimer < 0.25) return;
+
+    this._fogSignature = signature;
+    this._fogRefreshTimer = 0;
+    g.clear();
+
+    for (let y = vis.minY; y < vis.maxY; y++) {
+      let runFog = -1;
+      let runStart = vis.minX;
+
+      const flush = (endX) => {
+        if (runFog === 2 || runFog < 0 || endX <= runStart) return;
+        const alpha = runFog === 0 ? 0.92 : 0.48;
+        g.rect(runStart * TILE_SIZE, y * TILE_SIZE, (endX - runStart) * TILE_SIZE + 0.5, TILE_SIZE + 0.5)
+          .fill({ color: '#000000', alpha });
+      };
+
+      for (let x = vis.minX; x < vis.maxX; x++) {
+        const fog = this.map.getFog(x, y);
+        if (fog !== runFog) {
+          flush(x);
+          runFog = fog;
+          runStart = x;
         }
       }
+      flush(vis.maxX);
     }
   }
 
@@ -180,6 +223,8 @@ export class RenderSystem {
     for (const id of this.ecs.query(COMP.ORE_FIELD, COMP.POSITION)) {
       const field = this.ecs.getComponent(id, COMP.ORE_FIELD);
       const pos = this.ecs.getComponent(id, COMP.POSITION);
+      if (!this._isWorldRectVisible(pos.x - TILE_SIZE, pos.y - TILE_SIZE, TILE_SIZE * 2, TILE_SIZE * 2)) continue;
+
       const fog = this.map.getFog(Math.floor(pos.x / TILE_SIZE), Math.floor(pos.y / TILE_SIZE));
       if (fog === 0) continue;
 
@@ -235,6 +280,8 @@ export class RenderSystem {
 
       const sizeTiles = bld.size ?? 2;
       const sizePx = sizeTiles * TILE_SIZE;
+      if (!this._isWorldRectVisible(pos.x - sizePx / 2, pos.y - sizePx / 2, sizePx, sizePx)) continue;
+
       const color = faction?.color ?? '#888888';
       const group = new Container();
       group.position.set(pos.x, pos.y);
@@ -281,7 +328,7 @@ export class RenderSystem {
 
   _drawUnits(selectedEntities) {
     const layer = this.layers.units;
-    layer.removeChildren();
+    const visible = new Set();
 
     for (const id of this.ecs.query(COMP.UNIT, COMP.POSITION)) {
       const unit = this.ecs.getComponent(id, COMP.UNIT);
@@ -293,31 +340,62 @@ export class RenderSystem {
       if (fog === 0) continue;
 
       const sizePx = TILE_SIZE * 0.85;
+      if (!this._isWorldRectVisible(pos.x - sizePx, pos.y - sizePx, sizePx * 2, sizePx * 2)) continue;
+
+      visible.add(id);
       const color = faction?.color ?? '#888888';
-      const group = new Container();
+      const view = this._getUnitView(id);
+      const { group, shadow, selection, sprite, hpBar } = view;
+
+      if (!group.parent) layer.addChild(group);
       group.position.set(pos.x, pos.y);
       group.alpha = fog === 1 ? 0.45 : 1;
 
-      const shadow = new Graphics();
+      shadow.clear();
       shadow.ellipse(2, sizePx * 0.38, sizePx * 0.38, sizePx * 0.14).fill({ color: '#000000', alpha: 0.22 });
-      group.addChild(shadow);
 
+      selection.clear();
       if (selectedEntities?.has(id)) {
-        const sel = new Graphics();
-        sel.circle(0, 0, sizePx * 0.55).stroke({ color: '#ffff00', width: 2 / this.camera.zoom });
-        group.addChild(sel);
+        selection.circle(0, 0, sizePx * 0.55).stroke({ color: '#ffff00', width: 2 / this.camera.zoom });
       }
 
-      const sprite = new Sprite(this._texture('unit', unit.sprite || unit.key, unit.category, color, 28));
-      sprite.anchor.set(0.5);
+      sprite.texture = this._texture('unit', unit.sprite || unit.key, unit.category, color, 28);
       sprite.width = sizePx;
       sprite.height = sizePx;
       sprite.rotation = mov?.facing ?? 0;
-      group.addChild(sprite);
 
-      if (hp && hp.hp < hp.maxHp) group.addChild(this._healthBar(-sizePx / 2, -sizePx / 2 - 5, sizePx, hp.hp / hp.maxHp));
-      layer.addChild(group);
+      hpBar.clear();
+      if (hp && hp.hp < hp.maxHp) {
+        this._drawHealthBar(hpBar, -sizePx / 2, -sizePx / 2 - 5, sizePx, hp.hp / hp.maxHp);
+      }
     }
+
+    for (const [id, view] of this._unitViews) {
+      if (!visible.has(id) || !this.ecs.exists(id)) {
+        view.group.removeFromParent();
+        if (!this.ecs.exists(id)) {
+          view.group.destroy({ children: true });
+          this._unitViews.delete(id);
+        }
+      }
+    }
+  }
+
+  _getUnitView(id) {
+    let view = this._unitViews.get(id);
+    if (view) return view;
+
+    const group = new Container();
+    const shadow = new Graphics();
+    const selection = new Graphics();
+    const sprite = new Sprite(Texture.WHITE);
+    const hpBar = new Graphics();
+    sprite.anchor.set(0.5);
+    group.addChild(shadow, selection, sprite, hpBar);
+
+    view = { group, shadow, selection, sprite, hpBar };
+    this._unitViews.set(id, view);
+    return view;
   }
 
   _drawMoveMarkers(markers) {
@@ -458,11 +536,15 @@ export class RenderSystem {
 
   _healthBar(x, y, width, pct) {
     const g = new Graphics();
+    this._drawHealthBar(g, x, y, width, pct);
+    return g;
+  }
+
+  _drawHealthBar(g, x, y, width, pct) {
     const color = pct > 0.6 ? '#44dd44' : pct > 0.3 ? '#ddaa00' : '#dd2222';
     g.rect(x, y, width, 4).fill('#222222');
     g.rect(x, y, width * pct, 4).fill(color);
     g.rect(x, y, width, 4).stroke({ color: '#000000', width: 0.5 / this.camera.zoom });
-    return g;
   }
 
   _progressBar(x, y, width, pct, color = '#00aaff') {
@@ -470,6 +552,14 @@ export class RenderSystem {
     g.rect(x, y, width, 3).fill('#222222');
     g.rect(x, y, width * pct, 3).fill(color);
     return g;
+  }
+
+  _isWorldRectVisible(x, y, w, h) {
+    const left = this.camera.x / this.camera.zoom;
+    const top = this.camera.y / this.camera.zoom;
+    const right = left + this.camera.width / this.camera.zoom;
+    const bottom = top + this.camera.height / this.camera.zoom;
+    return x + w >= left && x <= right && y + h >= top && y <= bottom;
   }
 
   _texture(type, key, category, color, sizePx) {

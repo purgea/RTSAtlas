@@ -50,7 +50,7 @@ export class MovementSystem {
           }
         }
 
-        spatial.move(id, oldX, oldY, pos.x, pos.y);
+        spatial.move(id, pos.x, pos.y);
 
         if (mov.pathIndex >= mov.path.length) {
           mov.state     = 'idle';

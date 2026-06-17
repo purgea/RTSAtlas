@@ -221,6 +221,8 @@ let   notifId      = 0;
 // -------------------------------------------------------
 let engine = null;
 let rafId  = null;
+let lastHudUpdate = 0;
+let lastMinimapUpdate = 0;
 let mapMusic = null;
 let mapMusicId = null;
 
@@ -233,6 +235,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopMapMusic();
   engine?.stop();
+  if (window.__rtsEngine === engine) window.__rtsEngine = null;
   window.removeEventListener('resize', onResize);
   window.removeEventListener('pointerdown', resumeMapMusic);
   window.removeEventListener('keydown', resumeMapMusic);
@@ -263,6 +266,7 @@ function getCanvasSize() {
 function initEngine() {
   const cfg = buildConfig();
   engine    = new GameEngine(canvas.value, cfg);
+  window.__rtsEngine = engine;
 
   engine.on('defeat',  () => { gameOver.value = 'defeat'; });
   engine.on('victory', () => { gameOver.value = 'victory'; });
@@ -305,22 +309,28 @@ function buildConfig() {
   };
 }
 
-function uiLoop() {
+function uiLoop(timestamp = 0) {
   rafId = requestAnimationFrame(uiLoop);
   if (!engine) return;
 
-  const s = engine.getStats();
-  stats.fps      = s.fps;
-  stats.entities = s.entities;
-  credits.value  = s.credits ?? 0;
-  Object.assign(power, s.power || { supply: 0, drain: 0, deficit: false });
+  if (timestamp - lastHudUpdate >= 200) {
+    lastHudUpdate = timestamp;
 
-  sel.value              = engine.getSelectedInfo();
-  availableBuildings.value = engine.getAvailableBuildings();
+    const s = engine.getStats();
+    stats.fps      = s.fps;
+    stats.entities = s.entities;
+    credits.value  = s.credits ?? 0;
+    Object.assign(power, s.power || { supply: 0, drain: 0, deficit: false });
+
+    sel.value                = engine.getSelectedInfo();
+    availableBuildings.value = engine.getAvailableBuildings();
+  }
 
   // Minimap
-  const mmCtx = minimap.value?.getContext('2d');
-  if (mmCtx && engine.render) {
+  if (timestamp - lastMinimapUpdate >= 250) {
+    lastMinimapUpdate = timestamp;
+    const mmCtx = minimap.value?.getContext('2d');
+    if (!mmCtx || !engine.render) return;
     mmCtx.clearRect(0, 0, mmW, mmH);
     engine.render.renderMinimap(mmCtx, mmW, mmH);
   }
